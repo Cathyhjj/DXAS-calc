@@ -464,22 +464,40 @@ export function App() {
     [calculate, commitConfig, presets],
   );
 
-  const handleDetectorDistanceChange = useCallback(
-    (qMeters) => {
-      const q = Number(qMeters);
-      if (!Number.isFinite(q)) return;
-      const next = { ...configRef.current, detector_distance_m: Number(q.toFixed(4)) };
+  const handleDiagramDistanceChange = useCallback(
+    async (field, distanceMeters) => {
+      if (!["source_distance_m", "detector_distance_m"].includes(field)) return;
+      const distance = Number(distanceMeters);
+      if (!Number.isFinite(distance)) return;
+      const previousValue = configRef.current[field];
+      const next = { ...configRef.current, [field]: Number(distance.toFixed(4)) };
       commitConfig(next);
       setSelectedPresetId("");
       setDirty(true);
+      setServerError("");
+      setGeneralIssues([]);
       setFieldErrors((previous) => {
         const updated = { ...previous };
-        delete updated.detector_distance_m;
+        delete updated[field];
         return updated;
       });
-      void calculate(next);
+      const success = await calculate(next);
+      if (!success && configRef.current[field] === next[field]) {
+        commitConfig({ ...configRef.current, [field]: previousValue });
+      }
+      return success;
     },
     [calculate, commitConfig],
+  );
+
+  const handleSourceDistanceChange = useCallback(
+    (distanceMeters) => handleDiagramDistanceChange("source_distance_m", distanceMeters),
+    [handleDiagramDistanceChange],
+  );
+
+  const handleDetectorDistanceChange = useCallback(
+    (distanceMeters) => handleDiagramDistanceChange("detector_distance_m", distanceMeters),
+    [handleDiagramDistanceChange],
   );
 
   const handleReset = useCallback(() => {
@@ -671,39 +689,42 @@ export function App() {
               </div>
             </div>
 
-            {serverError || generalIssues.length ? (
-              <div className="calculation-message calculation-message--error" role="alert">
-                <IconAlertTriangle aria-hidden="true" size={19} stroke={1.8} />
-                <div>
-                  <strong>Calculation could not be updated</strong>
-                  <p>{serverError || generalIssues.join(" ")}</p>
-                  {result ? <small>The diagram and metrics show the last valid result.</small> : null}
+            <div className="canvas-panel__messages">
+              {serverError || generalIssues.length ? (
+                <div className="calculation-message calculation-message--error" role="alert">
+                  <IconAlertTriangle aria-hidden="true" size={19} stroke={1.8} />
+                  <div>
+                    <strong>Calculation could not be updated</strong>
+                    <p>{serverError || generalIssues.join(" ")}</p>
+                    {result ? <small>The diagram and metrics show the last valid result.</small> : null}
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            {bannerWarnings.length ? (
-              <div className="calculation-message calculation-message--warning" role="status">
-                <IconAlertTriangle aria-hidden="true" size={19} stroke={1.8} />
-                <div>
-                  <strong>
-                    {bannerWarnings.length === 1 ? "Model notice" : "Model notices"}
-                  </strong>
-                  <ul>
-                    {bannerWarnings.map((warning) => (
-                      <li key={`${warning.code}-${warning.field || "global"}`}>
-                        {warning.message}
-                      </li>
-                    ))}
-                  </ul>
+              {bannerWarnings.length ? (
+                <div className="calculation-message calculation-message--warning" role="status">
+                  <IconAlertTriangle aria-hidden="true" size={19} stroke={1.8} />
+                  <div>
+                    <strong>
+                      {bannerWarnings.length === 1 ? "Model notice" : "Model notices"}
+                    </strong>
+                    <ul>
+                      {bannerWarnings.map((warning) => (
+                        <li key={`${warning.code}-${warning.field || "global"}`}>
+                          {warning.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
 
             <div className={`canvas-panel__viewport${hasStaleResult ? " is-stale" : ""}`}>
               <OpticsCanvas
                 config={displayedConfig}
                 result={result}
+                onSourceDistanceChange={handleSourceDistanceChange}
                 onDetectorDistanceChange={handleDetectorDistanceChange}
               />
               {!result && loading ? (
@@ -717,7 +738,7 @@ export function App() {
             <div className="canvas-panel__footer">
               <p>
                 <IconRulerMeasure aria-hidden="true" size={16} />
-                Drag the detector in the diagram to change <em>q</em>; release to recalculate.
+                Drag the source or detector to adjust <em>p</em> or <em>q</em>; release to recalculate.
               </p>
               {result ? (
                 <dl className="geometry-readout" aria-label="Calculated geometry summary">
@@ -850,6 +871,7 @@ export function App() {
                   onChange={(value) => handleFieldChange("source_distance_m", value)}
                   step="0.01"
                   error={fieldErrors.source_distance_m}
+                  hint="You can also drag the source plane in the Plotly diagram."
                 />
                 <FieldControl
                   id="divergence"
@@ -905,7 +927,7 @@ export function App() {
                   onChange={(value) => handleFieldChange("detector_distance_m", value)}
                   step="0.01"
                   error={fieldErrors.detector_distance_m}
-                  hint="You can also drag the detector in the optics diagram."
+                  hint="You can also drag the detector plane in the Plotly diagram."
                 />
                 <FieldControl
                   id="pixel-size"

@@ -77,6 +77,44 @@ class WebApiTests(unittest.TestCase):
             any(preset["config"]["geometry"] == "laue" for preset in presets)
         )
 
+    def test_presets_include_allowed_si220_and_si311_in_both_geometries(self):
+        response = self.client.get("/api/presets")
+
+        self.assertEqual(response.status_code, 200)
+        presets = response.get_json()["presets"]
+        by_id = {preset["id"]: preset for preset in presets}
+
+        expected = {
+            "bragg-si220-example": ("bragg", (2, 2, 0), -2.0, "upper"),
+            "bragg-si311-example": ("bragg", (3, 1, 1), -2.0, "upper"),
+            "laue-si220-example": ("laue", (2, 2, 0), 2.0, "lower"),
+            "laue-si311-example": ("laue", (3, 1, 1), 2.0, "lower"),
+        }
+        self.assertEqual(len(presets), len(by_id), "preset ids must be unique")
+        self.assertTrue(expected.keys() <= by_id.keys())
+
+        for preset_id, (geometry, hkl, radius, condition) in expected.items():
+            with self.subTest(preset_id=preset_id):
+                config = by_id[preset_id]["config"]
+                self.assertEqual(config["geometry"], geometry)
+                self.assertEqual(
+                    (config["h"], config["k"], config["l"]),
+                    hkl,
+                )
+                self.assertEqual(config["energy_kev"], 8.0)
+                self.assertEqual(config["bending_radius_m"], radius)
+                self.assertEqual(config["condition"], condition)
+
+                calculation = self.client.post("/api/calculate", json=config)
+                self.assertEqual(
+                    calculation.status_code,
+                    200,
+                    calculation.get_data(as_text=True),
+                )
+                result = calculation.get_json()["result"]
+                self.assertGreater(result["bragg_angle_deg"], 0.0)
+                self.assertLess(result["bragg_angle_deg"], 90.0)
+
     def test_empty_json_uses_default_calculation(self):
         response = self.client.post("/api/calculate", json={})
 

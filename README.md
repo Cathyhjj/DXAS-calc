@@ -17,6 +17,9 @@ states instead of displaying negative widths as if they were physical sizes.
   magnitudes.
 - A Flask API and React interface are independently testable and run together
   as one deployable web service.
+- The geometry-first Plotly workbench mirrors the beamline right-to-left,
+  supports schematic and physical scales, and lets users drag the source or
+  detector to update `p` or `q` before recalculating through the validated API.
 - The original Notebook calculator remains available as migration and research
   context; new web code does not import its widgets or file-writing workflow.
 
@@ -53,6 +56,7 @@ API calls to the local Flask process.
 
 ```bash
 python -m unittest discover -s tests -v
+npm test --prefix frontend
 npm run build --prefix frontend
 ```
 
@@ -69,7 +73,7 @@ and error-boundary behavior.
 ## API
 
 - `GET /api/health` — service health
-- `GET /api/presets` — reviewed Bragg and Laue starting configurations
+- `GET /api/presets` — reviewed Bragg and Laue starting configurations for Si(111), Si(220), and Si(311)
 - `POST /api/calculate` — calculate one configuration
 
 Validation failures return HTTP 422 with field-addressable issues:
