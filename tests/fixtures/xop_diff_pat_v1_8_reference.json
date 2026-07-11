@@ -1,0 +1,137 @@
+{
+  "provenance": {
+    "generator": "XOP diff_pat v1.8 (18 Oct 2016) through xoppylib 1.0.53",
+    "material": "Si",
+    "energy_ev": 8000.0,
+    "scan": {
+      "axis": "incident angle minus corrected Bragg angle",
+      "unit": "microradian",
+      "bragg_minimum": -500.0,
+      "bragg_maximum": 500.0,
+      "laue_minimum": -400.0,
+      "laue_maximum": 400.0,
+      "points": 16001
+    },
+    "elasticity": {
+      "model": "isotropic",
+      "poisson_ratio": 0.22,
+      "sagittal_radius_cm": 1000000000.0,
+      "meridional_radius_cm": 200.0
+    },
+    "polarization": "unpolarized arithmetic mean of pi and sigma intensity",
+    "fwhm": "linear interpolation around the contiguous half-maximum lobe containing the global peak",
+    "bragg_model": "bent multilamellar, XOP geometry 0, asymmetry 0 deg, thickness 0.02 cm",
+    "laue_model": "bent Penning-Polder, XOP geometry 1, asymmetry 90 deg, thickness 0.005 cm"
+  },
+  "relative_tolerance": 0.01,
+  "cases": [
+    {
+      "id": "bragg-si111",
+      "config": {
+        "geometry": "bragg",
+        "material": "Si",
+        "h": 1,
+        "k": 1,
+        "l": 1,
+        "energy_kev": 8.0,
+        "bending_radius_m": 2.0,
+        "asymmetry_angle_deg": 0.0,
+        "crystal_thickness_um": 200.0,
+        "polarization": "unpolarized"
+      },
+      "crystal_intrinsic_width_urad_fwhm": 35.200271913248734,
+      "crystal_intrinsic_resolution_ev_fwhm": 1.1041389136377426,
+      "reflectivity_peak": 0.9315272649999999
+    },
+    {
+      "id": "bragg-si220",
+      "config": {
+        "geometry": "bragg",
+        "material": "Si",
+        "h": 2,
+        "k": 2,
+        "l": 0,
+        "energy_kev": 8.0,
+        "bending_radius_m": 2.0,
+        "asymmetry_angle_deg": 0.0,
+        "crystal_thickness_um": 200.0,
+        "polarization": "unpolarized"
+      },
+      "crystal_intrinsic_width_urad_fwhm": 25.94262333038023,
+      "crystal_intrinsic_resolution_ev_fwhm": 0.47053244386052256,
+      "reflectivity_peak": 0.938897705
+    },
+    {
+      "id": "bragg-si311",
+      "config": {
+        "geometry": "bragg",
+        "material": "Si",
+        "h": 3,
+        "k": 1,
+        "l": 1,
+        "energy_kev": 8.0,
+        "bending_radius_m": 2.0,
+        "asymmetry_angle_deg": 0.0,
+        "crystal_thickness_um": 200.0,
+        "polarization": "unpolarized"
+      },
+      "crystal_intrinsic_width_urad_fwhm": 16.31506691910623,
+      "crystal_intrinsic_resolution_ev_fwhm": 0.2429760194408146,
+      "reflectivity_peak": 0.812949015
+    },
+    {
+      "id": "laue-si111",
+      "config": {
+        "geometry": "laue",
+        "material": "Si",
+        "h": 1,
+        "k": 1,
+        "l": 1,
+        "energy_kev": 8.0,
+        "bending_radius_m": 2.0,
+        "asymmetry_angle_deg": 0.0,
+        "crystal_thickness_um": 50.0,
+        "polarization": "unpolarized"
+      },
+      "crystal_intrinsic_width_urad_fwhm": 42.57371630225437,
+      "crystal_intrinsic_resolution_ev_fwhm": 1.3354242542029886,
+      "reflectivity_peak": 0.10811402
+    },
+    {
+      "id": "laue-si220",
+      "config": {
+        "geometry": "laue",
+        "material": "Si",
+        "h": 2,
+        "k": 2,
+        "l": 0,
+        "energy_kev": 8.0,
+        "bending_radius_m": 2.0,
+        "asymmetry_angle_deg": 0.0,
+        "crystal_thickness_um": 50.0,
+        "polarization": "unpolarized"
+      },
+      "crystal_intrinsic_width_urad_fwhm": 28.96536421645557,
+      "crystal_intrinsic_resolution_ev_fwhm": 0.5253571868392546,
+      "reflectivity_peak": 0.0987647
+    },
+    {
+      "id": "laue-si311",
+      "config": {
+        "geometry": "laue",
+        "material": "Si",
+        "h": 3,
+        "k": 1,
+        "l": 1,
+        "energy_kev": 8.0,
+        "bending_radius_m": 2.0,
+        "asymmetry_angle_deg": 0.0,
+        "crystal_thickness_um": 50.0,
+        "polarization": "unpolarized"
+      },
+      "crystal_intrinsic_width_urad_fwhm": 15.592417834940509,
+      "crystal_intrinsic_resolution_ev_fwhm": 0.2322137958597693,
+      "reflectivity_peak": 0.092769897
+    }
+  ]
+}

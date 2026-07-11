@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Optional
@@ -10,9 +11,83 @@ from dxascalc.web_api import create_app
 
 class WebApiTests(unittest.TestCase):
     def setUp(self):
-        self.app = create_app()
+        # Keep transport-contract tests independent of the optional, external
+        # XOP executable.  A dedicated test below injects deterministic
+        # intrinsic-resolution data at this same boundary.
+        self.app = create_app(resolution_enricher=lambda _config, result: result)
         self.app.config.update(TESTING=True)
         self.client = self.app.test_client()
+
+    def test_calculate_serializes_injected_intrinsic_resolution(self):
+        captured = []
+
+        def deterministic_enricher(config, result):
+            captured.append((config, result))
+            curve = {
+                "x_axis": "energy_offset_ev",
+                "x": [-2.0, 0.0, 2.0],
+                "sigma": [0.0, 0.8, 0.0],
+                "pi": [0.0, 0.6, 0.0],
+                "selected": [0.0, 0.6, 0.0],
+            }
+            return replace(
+                result,
+                source_size_resolution_ev_fwhm=0.2,
+                crystal_intrinsic_resolution_ev_fwhm=1.1,
+                crystal_intrinsic_width_urad_fwhm=34.0,
+                total_resolution_ev_fwhm=1.35,
+                total_resolution_method="numerical_convolution",
+                reflectivity_curve=curve,
+                reflectivity_peak=0.6,
+                reflectivity_integrated=1.2,
+                reflectivity_model="test-fixture",
+            )
+
+        app = create_app(resolution_enricher=deterministic_enricher)
+        app.config.update(TESTING=True)
+        response = app.test_client().post(
+            "/api/calculate",
+            json={
+                "geometry": "laue",
+                "material": "Si",
+                "h": 3,
+                "k": 1,
+                "l": 1,
+                "source_size_um": 2.0,
+                "crystal_thickness_um": 50.0,
+                "polarization": "pi",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        result = response.get_json()["result"]
+        self.assertEqual(len(captured), 1)
+        config, base_result = captured[0]
+        self.assertEqual(config.geometry.value, "laue")
+        self.assertEqual((config.h, config.k, config.l), (3, 1, 1))
+        self.assertEqual(config.source_size_um, 2.0)
+        self.assertEqual(config.crystal_thickness_um, 50.0)
+        self.assertEqual(config.polarization.value, "pi")
+        self.assertIsNone(base_result.crystal_intrinsic_resolution_ev_fwhm)
+
+        self.assertEqual(result["source_size_resolution_ev_fwhm"], 0.2)
+        self.assertEqual(result["crystal_intrinsic_resolution_ev_fwhm"], 1.1)
+        self.assertEqual(result["crystal_intrinsic_width_urad_fwhm"], 34.0)
+        self.assertEqual(result["total_resolution_ev_fwhm"], 1.35)
+        self.assertEqual(result["total_resolution_method"], "numerical_convolution")
+        self.assertEqual(result["reflectivity_peak"], 0.6)
+        self.assertEqual(result["reflectivity_integrated"], 1.2)
+        self.assertEqual(result["reflectivity_model"], "test-fixture")
+        self.assertEqual(
+            result["reflectivity_curve"],
+            {
+                "x_axis": "energy_offset_ev",
+                "x": [-2.0, 0.0, 2.0],
+                "sigma": [0.0, 0.8, 0.0],
+                "pi": [0.0, 0.6, 0.0],
+                "selected": [0.0, 0.6, 0.0],
+            },
+        )
 
     def assert_invalid_configuration(
         self,
@@ -71,11 +146,18 @@ class WebApiTests(unittest.TestCase):
                 "condition": "upper",
                 "detector_distance_m": 1.5,
                 "pixel_size_um": 55.0,
+                "source_size_um": 1.5,
+                "crystal_thickness_um": 200.0,
+                "polarization": "unpolarized",
             },
         )
         self.assertTrue(
             any(preset["config"]["geometry"] == "laue" for preset in presets)
         )
+        laue = by_id["laue-si111-example"]["config"]
+        self.assertEqual(laue["crystal_thickness_um"], 50.0)
+        self.assertEqual(laue["source_size_um"], 1.5)
+        self.assertEqual(laue["polarization"], "unpolarized")
 
     def test_presets_include_allowed_si220_and_si311_in_both_geometries(self):
         response = self.client.get("/api/presets")
@@ -85,15 +167,33 @@ class WebApiTests(unittest.TestCase):
         by_id = {preset["id"]: preset for preset in presets}
 
         expected = {
-            "bragg-si220-example": ("bragg", (2, 2, 0), -2.0, "upper"),
-            "bragg-si311-example": ("bragg", (3, 1, 1), -2.0, "upper"),
-            "laue-si220-example": ("laue", (2, 2, 0), 2.0, "lower"),
-            "laue-si311-example": ("laue", (3, 1, 1), 2.0, "lower"),
+            "bragg-si220-example": (
+                "bragg",
+                (2, 2, 0),
+                -2.0,
+                "upper",
+                200.0,
+            ),
+            "bragg-si311-example": (
+                "bragg",
+                (3, 1, 1),
+                -2.0,
+                "upper",
+                200.0,
+            ),
+            "laue-si220-example": ("laue", (2, 2, 0), 2.0, "lower", 50.0),
+            "laue-si311-example": ("laue", (3, 1, 1), 2.0, "lower", 50.0),
         }
         self.assertEqual(len(presets), len(by_id), "preset ids must be unique")
         self.assertTrue(expected.keys() <= by_id.keys())
 
-        for preset_id, (geometry, hkl, radius, condition) in expected.items():
+        for preset_id, (
+            geometry,
+            hkl,
+            radius,
+            condition,
+            thickness,
+        ) in expected.items():
             with self.subTest(preset_id=preset_id):
                 config = by_id[preset_id]["config"]
                 self.assertEqual(config["geometry"], geometry)
@@ -104,6 +204,9 @@ class WebApiTests(unittest.TestCase):
                 self.assertEqual(config["energy_kev"], 8.0)
                 self.assertEqual(config["bending_radius_m"], radius)
                 self.assertEqual(config["condition"], condition)
+                self.assertEqual(config["source_size_um"], 1.5)
+                self.assertEqual(config["crystal_thickness_um"], thickness)
+                self.assertEqual(config["polarization"], "unpolarized")
 
                 calculation = self.client.post("/api/calculate", json=config)
                 self.assertEqual(
@@ -159,6 +262,54 @@ class WebApiTests(unittest.TestCase):
             field="divergence_mrad",
         )
 
+    def test_intrinsic_resolution_inputs_are_validated_at_the_api_boundary(self):
+        cases = (
+            (
+                {"source_size_um": -0.01},
+                "invalid_source_size",
+                "source_size_um",
+            ),
+            (
+                {"source_size_um": float("inf")},
+                "invalid_source_size",
+                "source_size_um",
+            ),
+            (
+                {"crystal_thickness_um": 0.0},
+                "invalid_crystal_thickness",
+                "crystal_thickness_um",
+            ),
+            (
+                {"crystal_thickness_um": float("nan")},
+                "invalid_crystal_thickness",
+                "crystal_thickness_um",
+            ),
+            (
+                {"polarization": "circular"},
+                "invalid_polarization",
+                "polarization",
+            ),
+        )
+
+        for payload, code, field in cases:
+            with self.subTest(payload=payload):
+                response = self.client.post("/api/calculate", json=payload)
+                self.assert_invalid_configuration(
+                    response,
+                    code=code,
+                    field=field,
+                )
+
+        point_source = self.client.post(
+            "/api/calculate",
+            json={"source_size_um": 0.0},
+        )
+        self.assertEqual(
+            point_source.status_code,
+            200,
+            point_source.get_data(as_text=True),
+        )
+
     def test_malformed_json_is_a_400_not_a_server_error(self):
         response = self.client.post(
             "/api/calculate",
@@ -211,6 +362,9 @@ class WebApiTests(unittest.TestCase):
                 "condition": "LOWER",
                 "detector_distance_m": "0.45",
                 "pixel_size_um": "75",
+                "source_size_um": "2.5",
+                "crystal_thickness_um": "50",
+                "polarization": "PI",
             },
         )
 

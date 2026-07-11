@@ -388,6 +388,9 @@ class CalculatorContractTests(unittest.TestCase):
         self.assertEqual(default.condition, Condition.UPPER)
         self.assertEqual(default.detector_distance_m, 1.5)
         self.assertEqual(default.pixel_size_um, 55.0)
+        self.assertEqual(default.source_size_um, 1.5)
+        self.assertEqual(default.crystal_thickness_um, 200.0)
+        self.assertEqual(default.polarization.value, "unpolarized")
 
         payload = replace(
             default,
@@ -427,12 +430,33 @@ class CalculatorContractTests(unittest.TestCase):
             "detector_beam_width_signed_mm",
             "detector_sampling_ev_per_pixel",
             "detector_sampling_signed_ev_per_pixel",
+            "source_size_resolution_ev_fwhm",
+            "crystal_intrinsic_resolution_ev_fwhm",
+            "crystal_intrinsic_width_urad_fwhm",
+            "total_resolution_ev_fwhm",
+            "total_resolution_method",
+            "reflectivity_curve",
+            "reflectivity_peak",
+            "reflectivity_integrated",
+            "reflectivity_model",
             "image_inverted",
             "focus_kind",
             "warnings",
             "assumptions",
         }
         self.assertEqual(set(payload), expected_keys)
+        for unavailable in (
+            "source_size_resolution_ev_fwhm",
+            "crystal_intrinsic_resolution_ev_fwhm",
+            "crystal_intrinsic_width_urad_fwhm",
+            "total_resolution_ev_fwhm",
+            "total_resolution_method",
+            "reflectivity_curve",
+            "reflectivity_peak",
+            "reflectivity_integrated",
+            "reflectivity_model",
+        ):
+            self.assertIsNone(payload[unavailable])
         self.assertIsInstance(payload["warnings"], list)
         self.assertIsInstance(payload["assumptions"], list)
         json.dumps(payload)
@@ -474,11 +498,31 @@ class CalculatorContractTests(unittest.TestCase):
                 "invalid_divergence",
                 "divergence_mrad",
             ),
+            (
+                replace(self.base, source_size_um=-0.001),
+                "invalid_source_size",
+                "source_size_um",
+            ),
+            (
+                replace(self.base, crystal_thickness_um=0.0),
+                "invalid_crystal_thickness",
+                "crystal_thickness_um",
+            ),
+            (
+                replace(self.base, polarization="circular"),
+                "invalid_polarization",
+                "polarization",
+            ),
         )
 
         for config, code, field in cases:
             with self.subTest(code=code):
                 self.assertIssue(config, code, field)
+
+        # A zero-width source is the valid point-source limit; unlike crystal
+        # thickness it must not be rejected by the model boundary.
+        result = calculate(replace(self.base, source_size_um=0.0))
+        self.assertGreater(result.d_spacing_angstrom, 0.0)
 
     def test_diamond_cubic_reflection_selection_rules(self) -> None:
         allowed = (
@@ -544,6 +588,16 @@ class CalculatorContractTests(unittest.TestCase):
                 replace(self.base, pixel_size_um=5e-324),
                 "invalid_pixel_size",
                 "pixel_size_um",
+            ),
+            (
+                replace(self.base, source_size_um=float("inf")),
+                "invalid_source_size",
+                "source_size_um",
+            ),
+            (
+                replace(self.base, crystal_thickness_um=float("nan")),
+                "invalid_crystal_thickness",
+                "crystal_thickness_um",
             ),
         )
 

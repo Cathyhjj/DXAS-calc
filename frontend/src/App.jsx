@@ -20,6 +20,7 @@ import {
 import { ComparisonPanel } from "./components/ComparisonPanel.jsx";
 import { FieldControl } from "./components/FieldControl.jsx";
 import { OpticsCanvas } from "./components/OpticsCanvas.jsx";
+import { ReflectivityPlot } from "./components/ReflectivityPlot.jsx";
 import { ResultMetric } from "./components/ResultMetric.jsx";
 
 const DEFAULT_CONFIG = Object.freeze({
@@ -29,7 +30,10 @@ const DEFAULT_CONFIG = Object.freeze({
   k: 1,
   l: 1,
   energy_kev: 8,
+  crystal_thickness_um: 200,
+  polarization: "unpolarized",
   source_distance_m: 1.2,
+  source_size_um: 1.5,
   divergence_mrad: 1.2,
   bending_radius_m: -2,
   asymmetry_angle_deg: 0,
@@ -43,7 +47,9 @@ const NUMERIC_FIELDS = [
   "k",
   "l",
   "energy_kev",
+  "crystal_thickness_um",
   "source_distance_m",
+  "source_size_um",
   "divergence_mrad",
   "bending_radius_m",
   "asymmetry_angle_deg",
@@ -61,8 +67,26 @@ const CONDITION_OPTIONS = [
   { value: "lower", label: "Lower" },
 ];
 
+const POLARIZATION_OPTIONS = [
+  { value: "unpolarized", label: "Unpolarized (σ + π)" },
+  { value: "sigma", label: "Sigma (σ)" },
+  { value: "pi", label: "Pi (π)" },
+];
+
+function defaultThicknessForGeometry(geometry) {
+  return geometry === "laue" ? 50 : 200;
+}
+
 function cloneConfig(config) {
-  return { ...config };
+  const source = config || {};
+  const geometry = source.geometry || DEFAULT_CONFIG.geometry;
+  return {
+    ...DEFAULT_CONFIG,
+    crystal_thickness_um: Object.prototype.hasOwnProperty.call(source, "crystal_thickness_um")
+      ? source.crystal_thickness_um
+      : defaultThicknessForGeometry(geometry),
+    ...source,
+  };
 }
 
 function canvasSafeConfig(config) {
@@ -97,6 +121,20 @@ function formatMetricDelta(current, baseline, unit) {
   const difference = currentValue - baselineValue;
   const sign = difference > 0 ? "+" : "";
   return `${sign}${formatValue(difference)} ${unit} vs baseline`;
+}
+
+function hasMetric(value) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value));
+}
+
+function resolutionMethodLabel(method) {
+  if (!method) return "Combined estimate";
+  const normalized = String(method).toLowerCase();
+  if (normalized.includes("quadrature") || normalized.includes("root_sum_square")) {
+    return "Quadrature estimate";
+  }
+  if (normalized.includes("convol")) return "Convolved response";
+  return String(method).replaceAll("_", " ");
 }
 
 function InspectorSection({ id, title, icon: Icon, expanded, onToggle, children }) {
@@ -166,14 +204,15 @@ function AboutDialog({ onClose, closeButtonRef, dialogRef }) {
           <p>
             DXASCalc explores dispersive X-ray absorption geometry for bent-crystal Bragg and
             Laue setups. The calculation reports geometry, energy span, beam size, and detector
-            sampling from the validated JSON API.
+            sampling together with an intrinsic crystal response from the validated JSON API.
           </p>
           <div className="about-dialog__notice">
             <IconInfoCircle aria-hidden="true" size={18} stroke={1.8} />
             <p>
-              Detector sampling is not total instrument energy resolution. Source-size and
-              intrinsic-crystal contributions are not yet modeled, so no total resolution is
-              reported.
+              Detector sampling is an energy interval per pixel, not a FWHM. The estimated total
+              resolution combines the pixel interval with finite-source and intrinsic-crystal
+              terms; review the reported model assumptions before treating it as an experimental
+              limit.
             </p>
           </div>
           <p>
@@ -222,6 +261,7 @@ export function App() {
   const aboutCloseButtonRef = useRef(null);
   const aboutDialogRef = useRef(null);
   const comparisonRef = useRef(null);
+  const thicknessEditedRef = useRef(false);
 
   const closeAboutDialog = useCallback(() => {
     setAboutOpen(false);
@@ -415,6 +455,7 @@ export function App() {
 
   const handleFieldChange = useCallback(
     (field, value) => {
+      if (field === "crystal_thickness_um") thicknessEditedRef.current = true;
       const next = { ...configRef.current, [field]: value };
       commitConfig(next);
       setSelectedPresetId("");
@@ -434,13 +475,20 @@ export function App() {
   const handleGeometryChange = useCallback(
     (geometry) => {
       if (configRef.current.geometry === geometry) return;
-      const next = { ...configRef.current, geometry };
+      const next = {
+        ...configRef.current,
+        geometry,
+        ...(thicknessEditedRef.current
+          ? {}
+          : { crystal_thickness_um: defaultThicknessForGeometry(geometry) }),
+      };
       commitConfig(next);
       setSelectedPresetId("");
       setDirty(true);
       setFieldErrors((previous) => {
         const updated = { ...previous };
         delete updated.geometry;
+        if (!thicknessEditedRef.current) delete updated.crystal_thickness_um;
         return updated;
       });
       void calculate(next);
@@ -454,6 +502,7 @@ export function App() {
       const preset = presets.find((item) => item.id === presetId);
       if (!preset?.config) return;
       const next = cloneConfig(preset.config);
+      thicknessEditedRef.current = false;
       commitConfig(next);
       setDirty(true);
       setFieldErrors({});
@@ -502,6 +551,7 @@ export function App() {
 
   const handleReset = useCallback(() => {
     const next = cloneConfig(DEFAULT_CONFIG);
+    thicknessEditedRef.current = false;
     commitConfig(next);
     setSelectedPresetId("bragg-si111-legacy-safe");
     setMenuOpen(false);
@@ -540,6 +590,9 @@ export function App() {
     (warning) => !contextualWarningCodes.has(warning.code),
   );
   const assumptions = Array.isArray(result?.assumptions) ? result.assumptions : [];
+  const hasSourceResolution = hasMetric(result?.source_size_resolution_ev_fwhm);
+  const hasCrystalResolution = hasMetric(result?.crystal_intrinsic_resolution_ev_fwhm);
+  const hasTotalResolution = hasMetric(result?.total_resolution_ev_fwhm);
 
   return (
     <div className="app-shell">
@@ -854,6 +907,45 @@ export function App() {
                   step="0.1"
                   error={fieldErrors.energy_kev}
                 />
+                <FieldControl
+                  id="crystal-thickness"
+                  label="Physical thickness"
+                  unit="µm"
+                  value={config.crystal_thickness_um}
+                  onChange={(value) => handleFieldChange("crystal_thickness_um", value)}
+                  step={config.geometry === "laue" ? "5" : "10"}
+                  min="0.1"
+                  error={fieldErrors.crystal_thickness_um}
+                  hint="Physical path thickness used by the intrinsic reflectivity model. Laue transmission crystals are typically much thinner."
+                />
+                <FieldControl
+                  id="polarization"
+                  label="Polarization"
+                  value={config.polarization}
+                  onChange={(value) => handleFieldChange("polarization", value)}
+                  options={POLARIZATION_OPTIONS}
+                  error={fieldErrors.polarization}
+                  hint="Unpolarized reports the average of the σ and π reflectivity profiles."
+                />
+                <div className={`model-callout model-callout--${config.geometry}`}>
+                  <IconInfoCircle aria-hidden="true" size={16} stroke={1.8} />
+                  <p>
+                    {config.geometry === "laue" ? (
+                      <>
+                        <strong>Laue transmission:</strong> thickness strongly changes the
+                        Penning–Polder profile. The 50 µm default is intentionally thin. A
+                        Borrmann-fan spatial contribution is not separately included in the total
+                        unless the result assumptions explicitly say it is.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Bragg reflection:</strong> the primary intrinsic response uses the
+                        XOP bent-crystal multilamellar model. Any fallback model is named with the
+                        result.
+                      </>
+                    )}
+                  </p>
+                </div>
               </InspectorSection>
 
               <InspectorSection
@@ -872,6 +964,17 @@ export function App() {
                   step="0.01"
                   error={fieldErrors.source_distance_m}
                   hint="You can also drag the source plane in the Plotly diagram."
+                />
+                <FieldControl
+                  id="source-size"
+                  label="Source size FWHM"
+                  unit="µm"
+                  value={config.source_size_um}
+                  onChange={(value) => handleFieldChange("source_size_um", value)}
+                  step="0.1"
+                  min="0"
+                  error={fieldErrors.source_size_um}
+                  hint="Effective source size in the dispersive plane, treated as a spatial FWHM."
                 />
                 <FieldControl
                   id="divergence"
@@ -1013,22 +1116,30 @@ export function App() {
               accent="slate"
             />
             <ResultMetric
-              label="Total resolution"
-              value="Not calculated"
-              note="Source and crystal terms are not modeled"
+              label="Estimated total resolution"
+              value={hasTotalResolution ? formatValue(result.total_resolution_ev_fwhm) : "Unavailable"}
+              unit={hasTotalResolution ? "eV FWHM" : undefined}
+              note={`${resolutionMethodLabel(result?.total_resolution_method)} · source + crystal + pixel interval`}
+              delta={formatMetricDelta(
+                result?.total_resolution_ev_fwhm,
+                baseline?.result?.total_resolution_ev_fwhm,
+                "eV FWHM",
+              )}
               accent="muted"
-              unavailable
+              unavailable={!hasTotalResolution}
             />
           </div>
         </section>
+
+        <ReflectivityPlot result={result} config={calculatedConfig || displayedConfig} />
 
         <section className="coverage-panel" aria-labelledby="coverage-heading">
           <div className="coverage-panel__intro">
             <p className="eyebrow">Scientific completeness</p>
             <h2 id="coverage-heading">Resolution model coverage</h2>
             <p>
-              Detector sampling is calculated. A total instrument resolution cannot be combined
-              until source-size and intrinsic-crystal contributions are modeled and validated.
+              The detector interval, finite-source FWHM, and intrinsic crystal FWHM are reported
+              separately. Total resolution is an estimate using the method named in the result.
             </p>
           </div>
 
@@ -1043,24 +1154,48 @@ export function App() {
                 <small>{formatValue(result?.detector_sampling_ev_per_pixel)} eV/px</small>
               </div>
             </li>
-            <li className="coverage-item coverage-item--pending">
+            <li
+              className={`coverage-item ${
+                hasSourceResolution ? "coverage-item--calculated" : "coverage-item--pending"
+              }`}
+            >
               <span className="coverage-item__icon" aria-hidden="true">
-                <IconCircleDashed size={18} stroke={1.8} />
+                {hasSourceResolution ? (
+                  <IconCheck size={18} stroke={2} />
+                ) : (
+                  <IconCircleDashed size={18} stroke={1.8} />
+                )}
               </span>
               <div>
                 <strong>Source-size contribution</strong>
-                <span>Not modeled</span>
-                <small>Required for total resolution</small>
+                <span>{hasSourceResolution ? "Calculated FWHM" : "Unavailable"}</span>
+                <small>
+                  {hasSourceResolution
+                    ? `${formatValue(result.source_size_resolution_ev_fwhm)} eV`
+                    : "Review the source-size input"}
+                </small>
               </div>
             </li>
-            <li className="coverage-item coverage-item--pending">
+            <li
+              className={`coverage-item ${
+                hasCrystalResolution ? "coverage-item--calculated" : "coverage-item--pending"
+              }`}
+            >
               <span className="coverage-item__icon" aria-hidden="true">
-                <IconCircleDashed size={18} stroke={1.8} />
+                {hasCrystalResolution ? (
+                  <IconCheck size={18} stroke={2} />
+                ) : (
+                  <IconCircleDashed size={18} stroke={1.8} />
+                )}
               </span>
               <div>
                 <strong>Crystal intrinsic width</strong>
-                <span>Not modeled</span>
-                <small>Required for total resolution</small>
+                <span>{hasCrystalResolution ? "Calculated FWHM" : "Unavailable"}</span>
+                <small>
+                  {hasCrystalResolution
+                    ? `${formatValue(result.crystal_intrinsic_resolution_ev_fwhm)} eV`
+                    : "Review crystal inputs and assumptions"}
+                </small>
               </div>
             </li>
           </ul>
@@ -1087,6 +1222,17 @@ export function App() {
                   Detector sampling is an energy interval per pixel, not a total instrument FWHM.
                 </li>
                 <li>
+                  Total resolution uses {resolutionMethodLabel(result?.total_resolution_method).toLowerCase()};
+                  contributions may not be Gaussian in a real bent-crystal instrument.
+                </li>
+                {(calculatedConfig || displayedConfig).geometry === "laue" ? (
+                  <li>
+                    The Laue intrinsic profile is thickness-sensitive. A Borrmann-fan spatial
+                    contribution is not separately included in total resolution unless explicitly
+                    named by the model; strain and fabrication broadening are also not implied.
+                  </li>
+                ) : null}
+                <li>
                   Displayed widths and spans are non-negative magnitudes; signed companions retain
                   orientation information in the API result.
                 </li>
@@ -1109,6 +1255,14 @@ export function App() {
                     <dt>Crystal footprint</dt>
                     <dd>{formatValue(result.crystal_footprint_mm)} mm</dd>
                   </div>
+                  <div>
+                    <dt>Crystal intrinsic FWHM</dt>
+                    <dd>{formatValue(result.crystal_intrinsic_resolution_ev_fwhm)} eV</dd>
+                  </div>
+                  <div>
+                    <dt>Source-size FWHM</dt>
+                    <dd>{formatValue(result.source_size_resolution_ev_fwhm)} eV</dd>
+                  </div>
                 </dl>
               ) : null}
             </div>
@@ -1127,8 +1281,8 @@ export function App() {
       </main>
 
       <footer className="app-footer">
-        <p>DXASCalc · Geometry and detector sampling workspace</p>
-        <p>Distances in m · angles in degrees or mrad · energy in keV/eV</p>
+        <p>DXASCalc · Geometry, reflectivity, and resolution workspace</p>
+        <p>Distances in m · thickness in µm · angles in degrees or mrad · energy in keV/eV</p>
       </footer>
 
       {aboutOpen ? (

@@ -17,6 +17,11 @@ dependencies = []
 [project.optional-dependencies]
 web = [
   "Flask>=3.0,<4",
+  "numpy>=1.26,<3",
+  "crystalpy==0.0.25",
+  "six==1.17.0",
+  "xraylib==4.2.0",
+  "xoppylib==1.0.53",
 ]
 legacy = [
   "numpy>=1.26,<3",
@@ -25,7 +30,12 @@ legacy = [
 ]
 dev = [
   "Flask>=3.0,<4",
+  "numpy>=1.26,<3",
   "pytest>=8,<9",
+  "crystalpy==0.0.25",
+  "six==1.17.0",
+  "xraylib==4.2.0",
+  "xoppylib==1.0.53",
 ]
 
 [tool.setuptools.packages.find]

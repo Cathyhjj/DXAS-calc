@@ -17,6 +17,8 @@ Public inputs use units that beamline users commonly enter:
 | Bending radius | m | m |
 | Asymmetry angle | degree | rad |
 | Detector pixel size | µm | m |
+| Source-size FWHM | µm | m/rad contribution |
+| Crystal thickness | µm | cm for XOP |
 
 Results include the unit in each field name. Width-like display values are
 non-negative magnitudes. A second `*_signed_*` field preserves the orientation
@@ -45,11 +47,16 @@ than presenting a negative beam size as an error.
 
 ## Resolution terminology
 
-`detector_sampling_ev_per_pixel` is the energy interval sampled by one pixel.
-It is **not** the total instrument energy resolution. Total resolution also
-requires validated contributions from source size and crystal intrinsic width.
-Until those adapters are reviewed and enabled, the UI must label detector
-sampling precisely and must not claim an overall FWHM resolution.
+`detector_sampling_ev_per_pixel` is the energy interval sampled by one pixel;
+it is not itself the total instrument energy resolution. The web API enriches
+the pure geometry result with a crystal reflectivity profile, a Gaussian
+source-size contribution, and a one-pixel detector top-hat. The reported
+`total_resolution_ev_fwhm` is the interpolated FWHM after numerical convolution
+of those three response functions.
+
+The total remains a model estimate, not a measured line-spread function. The
+Laue result warns that a separate detector-space Borrmann-fan broadening term
+is not included.
 
 ## Legacy compatibility and unresolved assumptions
 
@@ -76,7 +83,8 @@ The calculation layer rejects configurations before evaluating formulas when:
 - a Si or Ge reflection is systematically absent in the diamond-cubic lattice
   (indices must be all odd, or all even with a sum divisible by four);
 - the requested energy cannot satisfy Bragg's law for the selected plane;
-- a distance or pixel size is non-positive;
+- a distance, pixel size, or crystal thickness is non-positive;
+- source size is negative, or polarization is not sigma, pi, or unpolarized;
 - the full divergence is not in the non-periodic geometric domain between zero
   and pi radians;
 - the bending radius is zero;
@@ -86,14 +94,46 @@ The calculation layer rejects configurations before evaluating formulas when:
 Validation errors are structured (`field`, `code`, `message`) so the web app can
 place each message beside the control that needs attention.
 
-## Optional intrinsic-width workflow
+## Crystal reflectivity and intrinsic-width workflow
 
-The legacy XOPPY pipeline is not part of the request-safe core. It currently
-hard-codes parts of a Si configuration and writes fixed filenames in the current
-directory. Before enabling it for a multi-user web service it must:
+The enabled adapter maps material, reflection, energy, geometry, asymmetry,
+thickness, meridional radius, and polarization into XOPPY `diff_pat`. Every run
+uses a private temporary directory, an argument-list subprocess with a timeout,
+bounded solver and full-enrichment concurrency with a finite queue wait, and a
+32-entry cache keyed by scientific inputs. Bragg uses XOP's multilamellar
+bent-crystal model; Laue uses its Penning–Polder model.
+In XOP's convention,
+symmetric Bragg maps to a 0° plane/surface angle and symmetric Laue maps to 90°.
+The physical crystal cut is independent of the selected upper/lower diffraction
+branch.
 
-1. map every scientific input explicitly;
-2. run in an isolated temporary directory per request;
-3. record dependency and input provenance;
-4. have timeout and concurrency controls;
-5. be validated against reviewed reference datasets.
+The current elasticity mapping retains the legacy isotropic Poisson ratio 0.22,
+an effectively flat sagittal radius, and the meridional radius magnitude. The
+application's radius sign mirrors the energy-offset axis. If `diff_pat` cannot
+run, crystalpy provides an explicitly labeled flat-perfect-crystal fallback;
+that fallback does not claim bending-strain broadening.
+
+The reported intrinsic width uses linearly interpolated half-height crossings
+around the connected lobe containing the global maximum. This avoids including
+disconnected Pendellösung side lobes in the main-peak FWHM. The sigma and pi
+curves, selected-polarization curve, peak, and energy-integrated reflectivity
+are returned with the result so the modeled response is inspectable.
+
+Production scans use 10001 angular samples, giving 0.1 microradian spacing for
+the default Bragg range. Fine-grid regression references must agree within 1%;
+this prevents narrow gaps between multilamellar fringe components—especially
+for Si(220)—from being phase-missed and inflating the connected-main-lobe FWHM.
+All scalar metrics and response convolutions use these full-resolution arrays.
+The JSON plotting curve is evenly sampled to at most 2501 points for responsive
+Plotly interaction and reports both its displayed and source sample counts.
+Source and pixel response functions are applied as zero-padded linear
+convolutions using NumPy FFTs, avoiding input-dependent quadratic Python loops.
+
+Production pins XOPPY 1.0.53, xraylib 4.2.0, crystalpy 0.0.25, and six 1.17.0.
+The response model string also records the solver versions used at runtime. Reference fixtures
+cover Si(111), Si(220), and Si(311) in Bragg and Laue geometries. The scientific
+basis and model boundary follow the
+[official XOP crystal guidance](https://ftp.esrf.fr/scisoft/xop2.3/doc/WebHelp/functions/x_ray_optics.htm),
+the [ID24 energy-resolution treatment](https://journals.iucr.org/s/issues/2016/01/00/ie5146/),
+and the response-convolution method described by
+[Huang et al.](https://www.nature.com/articles/s41598-020-65225-4).

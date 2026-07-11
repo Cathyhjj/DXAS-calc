@@ -15,6 +15,7 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 from werkzeug.exceptions import BadRequest
 
 from dxascalc import DXASConfig, InvalidConfigurationError, calculate
+from dxascalc.reflectivity import enrich_with_intrinsic_resolution
 
 
 def _preset_payloads() -> list[dict[str, Any]]:
@@ -25,7 +26,7 @@ def _preset_payloads() -> list[dict[str, Any]]:
     requests.
     """
 
-    return [
+    presets = [
         {
             "id": "bragg-si111-legacy-safe",
             "name": "Bragg · Si(111)",
@@ -147,6 +148,14 @@ def _preset_payloads() -> list[dict[str, Any]]:
             },
         },
     ]
+    for preset in presets:
+        config = preset["config"]
+        config["source_size_um"] = 1.5
+        config["crystal_thickness_um"] = (
+            50.0 if config["geometry"] == "laue" else 200.0
+        )
+        config["polarization"] = "unpolarized"
+    return presets
 
 
 def _invalid_json_response(message: str):
@@ -161,7 +170,10 @@ def _invalid_json_response(message: str):
     )
 
 
-def create_app(static_folder: str | None = None) -> Flask:
+def create_app(
+    static_folder: str | None = None,
+    resolution_enricher=None,
+) -> Flask:
     """Create the API, optionally with a built single-page application.
 
     ``static_folder`` is disabled by default so importing the calculation API
@@ -173,6 +185,8 @@ def create_app(static_folder: str | None = None) -> Flask:
     # Always disable Flask's implicit ``/<path:filename>`` static rule.  The
     # explicit routes below can then distinguish SPA navigation from /api URLs.
     app = Flask(__name__, static_folder=None)
+    if resolution_enricher is None:
+        resolution_enricher = enrich_with_intrinsic_resolution
     frontend_root = (
         Path(static_folder).resolve() if static_folder is not None else None
     )
@@ -265,6 +279,8 @@ def create_app(static_folder: str | None = None) -> Flask:
                 ),
                 422,
             )
+
+        result = resolution_enricher(config, result)
 
         return jsonify({"result": result.to_dict()})
 

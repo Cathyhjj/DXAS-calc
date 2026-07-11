@@ -20,6 +20,13 @@ states instead of displaying negative widths as if they were physical sizes.
 - The geometry-first Plotly workbench mirrors the beamline right-to-left,
   supports schematic and physical scales, and lets users drag the source or
   detector to update `p` or `q` before recalculating through the validated API.
+- Crystal-response calculations expose the sigma, pi, and selected
+  polarization curves, their interpolated FWHM, and the finite-source
+  contribution. Bragg uses XOP's bent-crystal multilamellar model and Laue
+  uses its Penning-Polder model.
+- Estimated total energy resolution is the FWHM of a numerical convolution of
+  the crystal response, a Gaussian source-size response, and a one-pixel
+  detector response. Detector sampling remains separately labeled in eV/px.
 - The original Notebook calculator remains available as migration and research
   context; new web code does not import its widgets or file-writing workflow.
 
@@ -94,11 +101,23 @@ Validation failures return HTTP 422 with field-addressable issues:
 
 ## Scientific scope
 
-The current total-resolution model intentionally does not invent source-size or
-intrinsic-crystal contributions. The interface reports detector sampling and
-marks the missing terms as not modeled. The legacy XOPPY intrinsic-width
-pipeline must be isolated and scientifically reviewed before it is enabled in a
-multi-user service.
+The web calculation keeps the deterministic geometry core separate from the
+XOP-backed crystal-response adapter. Each XOP request runs in an isolated
+temporary directory with a timeout, and reusable crystal curves are cached by
+their scientific inputs in a bounded 32-entry cache. Scalar metrics retain the
+full 10001-point solver resolution while Plotly receives at most 2501 evenly
+sampled display points. The complete enrichment path has bounded concurrency,
+and response convolution uses NumPy FFTs. Source size is interpreted as a spatial FWHM in the
+dispersive plane; detector sampling is modeled as a one-pixel top-hat response,
+not as a Gaussian detector FWHM.
+
+The reported total is therefore a model estimate rather than a measured
+instrument line-spread function. In particular, the Laue estimate does not add
+a separate Borrmann-fan spatial contribution, and neither geometry includes
+fabrication strain or a measured detector PSF unless those effects are already
+represented by the selected XOP response. See
+[`docs/SCIENTIFIC_MODEL.md`](docs/SCIENTIFIC_MODEL.md) for the complete
+assumptions and provenance.
 
 Authors: Juanjuan Huang and George Sterbinsky
 Copyright © 2024, UChicago Argonne, LLC

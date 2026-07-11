@@ -8,6 +8,7 @@ from .models import (
     DXASConfig,
     GeometryType,
     Material,
+    Polarization,
 )
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "GeometryType",
     "InvalidConfigurationError",
     "Material",
+    "Polarization",
     "calculate",
 ]

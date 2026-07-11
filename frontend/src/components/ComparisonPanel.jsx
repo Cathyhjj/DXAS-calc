@@ -16,6 +16,16 @@ const COMPARISON_METRICS = [
     label: "Detector sampling",
     unit: "eV/px",
   },
+  {
+    key: "crystal_intrinsic_resolution_ev_fwhm",
+    label: "Crystal intrinsic width",
+    unit: "eV FWHM",
+  },
+  {
+    key: "total_resolution_ev_fwhm",
+    label: "Estimated total resolution",
+    unit: "eV FWHM",
+  },
 ];
 
 function formatValue(value) {
@@ -38,7 +48,9 @@ function setupLabel(config) {
   if (!config) return "Unknown setup";
   return `${config.material}(${config.h}${config.k}${config.l}) · ${formatValue(
     config.energy_kev,
-  )} keV · ${config.geometry === "laue" ? "Laue" : "Bragg"}`;
+  )} keV · ${config.geometry === "laue" ? "Laue" : "Bragg"} · ${formatValue(
+    config.crystal_thickness_um,
+  )} µm`;
 }
 
 export function ComparisonPanel({
@@ -117,7 +129,8 @@ export function ComparisonPanel({
         ))}
       </div>
       <p className="comparison-panel__footnote comparison-footer">
-        Detector sampling is compared as an interval per pixel, not as total instrument resolution.
+        Detector sampling is an interval per pixel. Crystal and estimated total values are energy
+        FWHM and should be interpreted with the model assumptions.
       </p>
     </section>
   );

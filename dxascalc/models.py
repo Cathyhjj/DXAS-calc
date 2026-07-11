@@ -33,6 +33,14 @@ class Condition(str, Enum):
     LOWER = "lower"
 
 
+class Polarization(str, Enum):
+    """Incident polarization used to select the reported crystal response."""
+
+    SIGMA = "sigma"
+    PI = "pi"
+    UNPOLARIZED = "unpolarized"
+
+
 EnumT = TypeVar("EnumT", bound=Enum)
 
 
@@ -110,6 +118,9 @@ class DXASConfig:
     condition: Condition = Condition.UPPER
     detector_distance_m: float = 1.5
     pixel_size_um: float = 55.0
+    source_size_um: float = 1.5
+    crystal_thickness_um: float = 200.0
+    polarization: Polarization = Polarization.UNPOLARIZED
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "DXASConfig":
@@ -139,6 +150,9 @@ class DXASConfig:
             "condition",
             "detector_distance_m",
             "pixel_size_um",
+            "source_size_um",
+            "crystal_thickness_um",
+            "polarization",
         }
         unknown = sorted(set(mapping) - known_fields)
         if unknown:
@@ -150,6 +164,9 @@ class DXASConfig:
         values["geometry"] = _enum_if_known(GeometryType, values["geometry"])
         values["material"] = _enum_if_known(Material, values["material"])
         values["condition"] = _enum_if_known(Condition, values["condition"])
+        values["polarization"] = _enum_if_known(
+            Polarization, values["polarization"]
+        )
 
         for name in ("h", "k", "l"):
             values[name] = _int_if_possible(values[name])
@@ -161,6 +178,8 @@ class DXASConfig:
             "asymmetry_angle_deg",
             "detector_distance_m",
             "pixel_size_um",
+            "source_size_um",
+            "crystal_thickness_um",
         ):
             values[name] = _float_if_possible(values[name])
 
@@ -189,6 +208,11 @@ class DXASConfig:
             else self.condition,
             "detector_distance_m": self.detector_distance_m,
             "pixel_size_um": self.pixel_size_um,
+            "source_size_um": self.source_size_um,
+            "crystal_thickness_um": self.crystal_thickness_um,
+            "polarization": self.polarization.value
+            if isinstance(self.polarization, Polarization)
+            else self.polarization,
         }
 
 
@@ -237,6 +261,15 @@ class CalculationResult:
     detector_sampling_signed_ev_per_pixel: float
     image_inverted: bool
     focus_kind: str
+    source_size_resolution_ev_fwhm: Optional[float] = None
+    crystal_intrinsic_resolution_ev_fwhm: Optional[float] = None
+    crystal_intrinsic_width_urad_fwhm: Optional[float] = None
+    total_resolution_ev_fwhm: Optional[float] = None
+    total_resolution_method: Optional[str] = None
+    reflectivity_curve: Optional[Dict[str, Any]] = None
+    reflectivity_peak: Optional[float] = None
+    reflectivity_integrated: Optional[float] = None
+    reflectivity_model: Optional[str] = None
     warnings: Tuple[CalculationIssue, ...] = field(default_factory=tuple)
     assumptions: Tuple[str, ...] = field(default_factory=tuple)
 
@@ -262,6 +295,15 @@ class CalculationResult:
             "detector_sampling_signed_ev_per_pixel": self.detector_sampling_signed_ev_per_pixel,
             "image_inverted": self.image_inverted,
             "focus_kind": self.focus_kind,
+            "source_size_resolution_ev_fwhm": self.source_size_resolution_ev_fwhm,
+            "crystal_intrinsic_resolution_ev_fwhm": self.crystal_intrinsic_resolution_ev_fwhm,
+            "crystal_intrinsic_width_urad_fwhm": self.crystal_intrinsic_width_urad_fwhm,
+            "total_resolution_ev_fwhm": self.total_resolution_ev_fwhm,
+            "total_resolution_method": self.total_resolution_method,
+            "reflectivity_curve": self.reflectivity_curve,
+            "reflectivity_peak": self.reflectivity_peak,
+            "reflectivity_integrated": self.reflectivity_integrated,
+            "reflectivity_model": self.reflectivity_model,
             "warnings": [warning.to_dict() for warning in self.warnings],
             "assumptions": list(self.assumptions),
         }

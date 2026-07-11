@@ -1,2 +1,7 @@
 Flask>=3.0,<4
 gunicorn>=22,<24
+numpy>=1.26,<3
+crystalpy==0.0.25
+six==1.17.0
+xraylib==4.2.0
+xoppylib==1.0.53

@@ -7,6 +7,6 @@ services:
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.12.2
+        value: 3.12.13
       - key: NODE_VERSION
         value: 22.14.0

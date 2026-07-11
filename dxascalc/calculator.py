@@ -13,6 +13,7 @@ from .models import (
     DXASConfig,
     GeometryType,
     Material,
+    Polarization,
 )
 
 
@@ -86,7 +87,9 @@ def _diamond_reflection_allowed(h: int, k: int, l: int) -> bool:
     return (h + k + l) % 4 == 0
 
 
-def _validate(config: DXASConfig) -> Tuple[GeometryType, Material, Condition]:
+def _validate(
+    config: DXASConfig,
+) -> Tuple[GeometryType, Material, Condition, Polarization]:
     issues: List[CalculationIssue] = []
 
     geometry = _coerce_enum(GeometryType, config.geometry)
@@ -116,6 +119,16 @@ def _validate(config: DXASConfig) -> Tuple[GeometryType, Material, Condition]:
                 "invalid_condition",
                 "Condition must be 'upper' or 'lower'.",
                 "condition",
+            )
+        )
+
+    polarization = _coerce_enum(Polarization, config.polarization)
+    if polarization is None:
+        issues.append(
+            _error(
+                "invalid_polarization",
+                "Polarization must be 'sigma', 'pi', or 'unpolarized'.",
+                "polarization",
             )
         )
 
@@ -189,11 +202,25 @@ def _validate(config: DXASConfig) -> Tuple[GeometryType, Material, Condition]:
             "invalid_pixel_size",
             "Detector pixel size must be a finite value greater than zero.",
         ),
+        (
+            "crystal_thickness_um",
+            "invalid_crystal_thickness",
+            "Crystal thickness must be a finite value greater than zero.",
+        ),
     )
     for field_name, code, message in positive_fields:
         value = getattr(config, field_name)
         if not _finite_real(value) or float(value) <= 0.0:
             issues.append(_error(code, message, field_name))
+
+    if not _finite_real(config.source_size_um) or float(config.source_size_um) < 0.0:
+        issues.append(
+            _error(
+                "invalid_source_size",
+                "Source size must be a finite value greater than or equal to zero.",
+                "source_size_um",
+            )
+        )
 
     divergence = config.divergence_mrad
     if (
@@ -235,7 +262,7 @@ def _validate(config: DXASConfig) -> Tuple[GeometryType, Material, Condition]:
         raise InvalidConfigurationError(issues)
 
     # The checks above prove these optionals are concrete enum members.
-    return geometry, material, condition  # type: ignore[return-value]
+    return geometry, material, condition, polarization  # type: ignore[return-value]
 
 
 def _raise_singularity(code: str, message: str, field: str) -> None:
@@ -280,7 +307,7 @@ def calculate(config: DXASConfig) -> CalculationResult:
             )
         )
 
-    geometry, material, condition = _validate(config)
+    geometry, material, condition, _polarization = _validate(config)
 
     h = int(config.h)
     k = int(config.k)
@@ -522,7 +549,7 @@ def calculate(config: DXASConfig) -> CalculationResult:
     assumptions = [
         "Incident divergence is the full angular span, not a half-angle.",
         "Energy spans use the linearized dispersion relation deltaE = E * deltaTheta / tan(thetaB).",
-        "The source is treated as a point source and distances follow the legacy DXASCalc geometry.",
+        "The ray geometry treats the source as a point; the resolution service separately applies the configured finite source FWHM.",
     ]
     if geometry is GeometryType.BRAGG:
         assumptions.append(
