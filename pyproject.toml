@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dxascalc"
+version = "0.2.0"
+description = "Validated calculations for dispersive X-ray absorption spectroscopy optics"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "Juanjuan Huang" },
+  { name = "George Sterbinsky" },
+]
+dependencies = []
+
+[project.optional-dependencies]
+web = [
+  "Flask>=3.0,<4",
+  "numpy>=1.26,<3",
+  "crystalpy==0.0.25",
+  "six==1.17.0",
+  "xraylib==4.2.0",
+  "xoppylib==1.0.53",
+]
+legacy = [
+  "numpy>=1.26,<3",
+  "matplotlib>=3.8,<4",
+  "ipywidgets>=8,<9",
+]
+dev = [
+  "Flask>=3.0,<4",
+  "numpy>=1.26,<3",
+  "pytest>=8,<9",
+  "crystalpy==0.0.25",
+  "six==1.17.0",
+  "xraylib==4.2.0",
+  "xoppylib==1.0.53",
+]
+
+[tool.setuptools.packages.find]
+include = ["dxascalc*"]
+
+[tool.coverage.run]
+branch = true
+source = ["dxascalc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["sample_project", ".venv", "frontend"]

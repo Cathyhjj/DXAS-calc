@@ -3,8 +3,10 @@ services:
     name: dxascalc-web
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run web_app.py --server.port $PORT --server.address 0.0.0.0
+    buildCommand: npm ci --prefix frontend --cache /tmp/npm-cache && npm run build --prefix frontend && pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.12.2
+        value: 3.12.13
+      - key: NODE_VERSION
+        value: 22.14.0

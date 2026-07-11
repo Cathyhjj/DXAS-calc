@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Python tooling
+.coverage
+htmlcov/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Frontend tooling
+node_modules/
+frontend/dist/
+frontend/.npm-cache/
+frontend/.npmrc
+
+# Large local design/reference checkout; not part of the application package
+sample_project/
+
+# Runtime scratch files produced by the legacy XOPPY workflow
+*.log
+tmp/
