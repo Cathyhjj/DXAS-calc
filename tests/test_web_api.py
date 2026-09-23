@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
+import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Optional
 import unittest
+from unittest import mock
 
+import dxascalc.reflectivity as reflectivity_module
+from dxascalc.reflectivity import ReflectivitySolution, enrich_with_intrinsic_resolution
 from dxascalc.web_api import create_app
 
 
@@ -17,6 +22,14 @@ class WebApiTests(unittest.TestCase):
         self.app = create_app(resolution_enricher=lambda _config, result: result)
         self.app.config.update(TESTING=True)
         self.client = self.app.test_client()
+
+    def assert_strict_json(self, response):
+        def reject_constant(value):
+            raise AssertionError(f"Non-standard JSON number: {value}")
+
+        body = json.loads(response.get_data(as_text=True), parse_constant=reject_constant)
+        json.dumps(body, allow_nan=False)
+        return body
 
     def test_calculate_serializes_injected_intrinsic_resolution(self):
         captured = []
@@ -89,6 +102,97 @@ class WebApiTests(unittest.TestCase):
             },
         )
 
+    def test_enrichment_response_states_are_strict_json(self):
+        solution = ReflectivitySolution(
+            energy_offset_ev=(-2.0, -1.0, 0.0, 1.0, 2.0),
+            sigma=(0.0, 0.5, 1.0, 0.5, 0.0),
+            pi=(0.0, 0.5, 1.0, 0.5, 0.0),
+            selected=(0.0, 0.5, 1.0, 0.5, 0.0),
+            model="XOP test solution",
+        )
+        fallback = replace(
+            solution,
+            model="crystalpy flat fallback",
+            warning_messages=(("flat_crystal_reflectivity_fallback", "XOP failed"),),
+        )
+
+        def solver(config):
+            polarization = getattr(config.polarization, "value", config.polarization)
+            return fallback if polarization == "pi" else solution
+
+        app = create_app(
+            resolution_enricher=lambda config, result: enrich_with_intrinsic_resolution(
+                config, result, solver=solver
+            )
+        )
+        app.config.update(TESTING=True)
+        client = app.test_client()
+        cases = (
+            ("success", {"source_size_um": 0.0}, "XOP test solution", None),
+            (
+                "partial",
+                {"source_size_um": 0.0, "pixel_size_um": 1.0e8},
+                "XOP test solution",
+                "resolution_enrichment_failed",
+            ),
+            (
+                "fallback",
+                {"source_size_um": 0.0, "polarization": "pi"},
+                "crystalpy flat fallback",
+                "flat_crystal_reflectivity_fallback",
+            ),
+            (
+                "extreme",
+                {"source_size_um": 1.0e308, "source_distance_m": 0.01},
+                "XOP test solution",
+                "source_size_resolution_unavailable",
+            ),
+        )
+        for name, payload, model, warning_code in cases:
+            with self.subTest(name=name):
+                response = client.post("/api/calculate", json=payload)
+                self.assertEqual(response.status_code, 200)
+                result = self.assert_strict_json(response)["result"]
+                self.assertEqual(result["reflectivity_model"], model)
+                if warning_code is not None:
+                    self.assertIn(
+                        warning_code,
+                        {warning["code"] for warning in result["warnings"]},
+                    )
+                if name == "extreme":
+                    self.assertIsNone(result["source_size_resolution_ev_fwhm"])
+                    self.assertIsNotNone(result["crystal_intrinsic_resolution_ev_fwhm"])
+                if name == "partial":
+                    self.assertIsNone(result["total_resolution_ev_fwhm"])
+
+        class BusyGate:
+            def acquire(self, *, timeout):
+                return False
+
+        with mock.patch.object(reflectivity_module, "_ENRICHMENT_CONCURRENCY", BusyGate()):
+            busy = client.post("/api/calculate", json={})
+        self.assertEqual(busy.status_code, 200)
+        result = self.assert_strict_json(busy)["result"]
+        self.assertEqual(result["reflectivity_model"], "unavailable")
+        self.assertIn(
+            "resolution_enrichment_busy",
+            {warning["code"] for warning in result["warnings"]},
+        )
+
+    def test_nonfinite_enricher_result_returns_fielded_strict_json_error(self):
+        def nonfinite_enricher(_config, result):
+            return replace(result, source_size_resolution_ev_fwhm=math.inf)
+
+        app = create_app(resolution_enricher=nonfinite_enricher)
+        app.config.update(TESTING=True)
+        response = app.test_client().post("/api/calculate", json={})
+
+        self.assertEqual(response.status_code, 503)
+        body = self.assert_strict_json(response)
+        self.assertEqual(body["error"], "calculation_unavailable")
+        self.assertEqual(body["issues"][0]["code"], "nonfinite_result")
+        self.assertEqual(body["issues"][0]["field"], "source_size_resolution_ev_fwhm")
+
     def assert_invalid_configuration(
         self,
         response,
@@ -121,6 +225,30 @@ class WebApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
+
+    def test_absorption_edge_catalog_uses_xraylib_kev_values(self):
+        response = self.client.get("/api/absorption-edges")
+
+        self.assertEqual(response.status_code, 200)
+        elements = response.get_json()["elements"]
+        self.assertEqual(len(elements), 100)
+        self.assertEqual(
+            [element["atomic_number"] for element in elements], list(range(1, 101))
+        )
+        manganese = elements[24]
+        self.assertEqual(manganese["symbol"], "Mn")
+        self.assertEqual(manganese["atomic_number"], 25)
+        self.assertEqual(manganese["edges_kev"]["K"], 6.539)
+        self.assertEqual(set(manganese["edges_kev"]), {"K", "L1", "L2", "L3"})
+
+    def test_absorption_edge_catalog_omits_unavailable_shells(self):
+        response = self.client.get("/api/absorption-edges")
+
+        self.assertEqual(response.status_code, 200)
+        elements = response.get_json()["elements"]
+        self.assertEqual(elements[0]["symbol"], "H")
+        self.assertEqual(set(elements[0]["edges_kev"]), {"K"})
+        self.assertEqual(set(elements[2]["edges_kev"]), {"K", "L1"})
 
     def test_presets_include_legacy_safe_bragg_and_laue(self):
         response = self.client.get("/api/presets")

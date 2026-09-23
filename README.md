@@ -1,9 +1,11 @@
 # DXASCalc
 
-DXASCalc is a validated, browser-based calculator for dispersive X-ray
+DXASCalc is a browser-based calculator for dispersive X-ray
 absorption spectroscopy optics. It supports Bragg and Laue geometries, keeps
 the bending-radius and focus sign conventions explicit, and explains geometry
 states instead of displaying negative widths as if they were physical sizes.
+The API validates input and the numerical implementation has legacy and solver
+regression tests; these checks do not constitute experimental validation.
 
 ## What the refactor changes
 
@@ -19,7 +21,7 @@ states instead of displaying negative widths as if they were physical sizes.
   as one deployable web service.
 - The geometry-first Plotly workbench mirrors the beamline right-to-left,
   supports schematic and physical scales, and lets users drag the source or
-  detector to update `p` or `q` before recalculating through the validated API.
+  detector to update `p` or `q` before recalculating through the input-validating API.
 - Crystal-response calculations expose the sigma, pi, and selected
   polarization curves, their interpolated FWHM, and the finite-source
   contribution. Bragg uses XOP's bent-crystal multilamellar model and Laue
@@ -59,6 +61,24 @@ npm run dev --prefix frontend
 The development interface is available at `http://localhost:5173` and proxies
 API calls to the local Flask process.
 
+## Photon energy input
+
+Enter any positive photon energy in eV in the Crystal panel, or choose an
+element and its K, L1, L2, or L3 absorption edge to fill that field from
+`xraylib`'s tabulated edge energy. Editing the number switches the picker back
+to **Custom energy**. The selected value still passes through the calculator's
+crystal and reflection validation when recalculated. Existing API requests and
+saved configuration files retain the `energy_kev` field for compatibility;
+the interface converts at the input boundary.
+
+## Save and load configurations
+
+Open the three-dot application menu and choose **Save input configuration** to download
+the current setup as a versioned JSON file. Choose **Load configuration** to open
+one of these files. Loading replaces the setup inputs and recalculates them with
+the input-validating API. The file includes all scientific inputs but no calculated
+results, so it can be shared or saved alongside an experiment.
+
 ## Test and build
 
 ```bash
@@ -81,6 +101,7 @@ and error-boundary behavior.
 
 - `GET /api/health` — service health
 - `GET /api/presets` — reviewed Bragg and Laue starting configurations for Si(111), Si(220), and Si(311)
+- `GET /api/absorption-edges` — elements 1–100 and their available K/L1/L2/L3 edge energies in keV
 - `POST /api/calculate` — calculate one configuration
 
 Validation failures return HTTP 422 with field-addressable issues:
@@ -103,8 +124,9 @@ Validation failures return HTTP 422 with field-addressable issues:
 
 The web calculation keeps the deterministic geometry core separate from the
 XOP-backed crystal-response adapter. Each XOP request runs in an isolated
-temporary directory with a timeout, and reusable crystal curves are cached by
-their scientific inputs in a bounded 32-entry cache. Scalar metrics retain the
+temporary directory with a timeout, and successful XOP crystal curves are cached by
+their scientific inputs in a bounded 32-entry cache. Temporary fallback curves
+are retried on the next request. Scalar metrics retain the
 full 10001-point solver resolution while Plotly receives at most 2501 evenly
 sampled display points. The complete enrichment path has bounded concurrency,
 and response convolution uses NumPy FFTs. Source size is interpreted as a spatial FWHM in the

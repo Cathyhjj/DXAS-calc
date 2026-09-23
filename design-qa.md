@@ -1,5 +1,35 @@
 # DXASCalc design QA
 
+## 2026-09-22 refactor check
+
+This section describes the current source in the local Vite preview. It is a
+focused layout and interaction check, not a full accessibility or scientific
+validation. The earlier prototype notes below are archived; their five image
+paths are no longer present in this workspace and their `passed` conclusion
+does not apply to this refactor.
+
+- At 1280 × 800, the four primary outputs and the energy input are visible.
+  The 8978.9 eV draft stays fully visible in the inspector, while the page
+  states that the 8000 eV result is previous. The inspector can continue below
+  the viewport without a nested fixed-height rail.
+- At 820 × 900 and 390 × 844, document width equals viewport width. A
+  Parameters/Results jump is available when the columns stack.
+- A current result can become the comparison baseline. Editing p disables
+  baseline replacement; after recalculation, the comparison lists the p input
+  change and enables replacement.
+- An invalid radius keeps the input draft and last accepted result and exposes
+  the field error. The geometry section opens for that error.
+- A 2100 eV Si(111) result and extreme p/q cases were inspected in the
+  physical plot. Coordinate and projection regressions are covered by the
+  focused geometry tests; icon sizes and beam envelopes remain illustrative.
+
+Frontend and backend test commands are documented in `README.md`.
+Screen-reader, complete keyboard/zoom matrix, exported
+Plotly PNG overlays, and a download/re-upload file round trip still need a
+separate acceptance pass.
+
+## Archived prototype audit
+
 - Source visual truth: `/Users/juanjuanhuang/.codex/generated_images/019f4a40-70e7-7243-b212-4a8679df6a86/exec-cfd42abe-003a-473b-89a0-8b44bc82e7c2.png`
 - Browser-rendered production implementation: `/tmp/dxas-production-final-v3.png`
 - Full-view comparison: `/tmp/dxas-design-comparison-final.png`

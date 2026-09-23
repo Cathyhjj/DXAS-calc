@@ -8,6 +8,9 @@ export const CRYSTAL_LINE_WIDTH = Object.freeze({ bragg: 13, laue: 4 });
 
 const SCHEMATIC_MIN = 1.75;
 const SCHEMATIC_MAX = 5.35;
+const SCHEMATIC_OFFSET_M = DISTANCE_MIN_M;
+const SCHEMATIC_LOG_MIN = Math.log(DISTANCE_MIN_M + SCHEMATIC_OFFSET_M);
+const SCHEMATIC_LOG_SPAN = Math.log(DISTANCE_MAX_M + SCHEMATIC_OFFSET_M) - SCHEMATIC_LOG_MIN;
 
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -17,31 +20,28 @@ export function finite(value, fallback = 0) {
 }
 
 export function positiveDistance(value, fallback = 1.5) {
-  return clamp(
-    finite(value, fallback) > 0 ? finite(value, fallback) : fallback,
-    DISTANCE_MIN_M,
-    DISTANCE_MAX_M,
-  );
+  const distance = Number(value);
+  return Number.isFinite(distance) && distance > 0 ? distance : fallback;
+}
+
+export function isDistanceDraggable(distance) {
+  return Number.isFinite(distance) && distance >= DISTANCE_MIN_M && distance <= DISTANCE_MAX_M;
 }
 
 export function distanceToDisplay(distanceMeters, scaleMode = SCALE_SCHEMATIC) {
   const distance = positiveDistance(distanceMeters);
   if (scaleMode === SCALE_PHYSICAL) return distance;
-  const ratio = Math.log(distance / DISTANCE_MIN_M) / Math.log(DISTANCE_MAX_M / DISTANCE_MIN_M);
+  // A monotonic logarithmic map keeps every positive distance distinct. The
+  // offset also keeps very small positive values on the positive display axis.
+  const ratio = (Math.log(distance + SCHEMATIC_OFFSET_M) - SCHEMATIC_LOG_MIN) / SCHEMATIC_LOG_SPAN;
   return SCHEMATIC_MIN + ratio * (SCHEMATIC_MAX - SCHEMATIC_MIN);
 }
 
 export function displayToDistance(displayDistance, scaleMode = SCALE_SCHEMATIC) {
-  if (scaleMode === SCALE_PHYSICAL) {
-    return clamp(finite(displayDistance, DISTANCE_MIN_M), DISTANCE_MIN_M, DISTANCE_MAX_M);
-  }
-  const ratio = clamp(
-    (finite(displayDistance, SCHEMATIC_MIN) - SCHEMATIC_MIN) /
-      (SCHEMATIC_MAX - SCHEMATIC_MIN),
-    0,
-    1,
-  );
-  return DISTANCE_MIN_M * Math.pow(DISTANCE_MAX_M / DISTANCE_MIN_M, ratio);
+  if (scaleMode === SCALE_PHYSICAL) return finite(displayDistance, DISTANCE_MIN_M);
+  const ratio = (finite(displayDistance, SCHEMATIC_MIN) - SCHEMATIC_MIN) /
+    (SCHEMATIC_MAX - SCHEMATIC_MIN);
+  return Math.exp(SCHEMATIC_LOG_MIN + ratio * SCHEMATIC_LOG_SPAN) - SCHEMATIC_OFFSET_M;
 }
 
 const radians = (degrees) => (degrees * Math.PI) / 180;
@@ -80,7 +80,9 @@ export function buildOpticsGeometry(config = {}, result = null, scaleMode = SCAL
   const isLower = config.condition === "lower";
   const side = isLaue ? (isLower ? 1 : -1) : isLower ? -1 : 1;
   const thetaActualDeg = Math.abs(finite(result?.bragg_angle_deg, 14));
-  const thetaDisplayDeg = clamp(thetaActualDeg, 2, 42);
+  // Angle is never compressed: a backscattering detector can lie to the right
+  // of the crystal. Only distances are compressed in schematic mode.
+  const thetaDisplayDeg = thetaActualDeg;
   const scatteringAngleDeg = thetaDisplayDeg * 2;
 
   // This is the horizontal mirror of the legacy left-to-right construction.
@@ -100,10 +102,16 @@ export function buildOpticsGeometry(config = {}, result = null, scaleMode = SCAL
   const crystal = { x: 0, y: 0 };
   const source = { x: pDisplay, y: 0 };
   const detector = point(crystal, outgoingAxis, qDisplay);
+  const detectorProjection = { x: detector.x, y: 0 };
+  const detectorLongitudinalM = Math.abs(detectorDistanceM * Math.cos(radians(thetaActualDeg * 2)));
+  const detectorTransverseM = Math.abs(detectorDistanceM * Math.sin(radians(thetaActualDeg * 2)));
   const sceneSpan = Math.max(pDisplay, qDisplay, scaleMode === SCALE_PHYSICAL ? 0.2 : SCHEMATIC_MIN);
-  const sourceHalf = Math.max(sceneSpan * 0.075, scaleMode === SCALE_PHYSICAL ? 0.025 : 0.24);
-  const detectorHalf = Math.max(sceneSpan * 0.12, scaleMode === SCALE_PHYSICAL ? 0.04 : 0.34);
-  const crystalHalf = Math.max(sceneSpan * 0.095, scaleMode === SCALE_PHYSICAL ? 0.03 : 0.28);
+  // Device marks and the drawn ray envelope are illustrative, not physical
+  // device dimensions. Cap their size when a long distance sets the viewport.
+  const symbolSpan = scaleMode === SCALE_PHYSICAL ? Math.min(sceneSpan, 3) : sceneSpan;
+  const sourceHalf = Math.max(symbolSpan * 0.075, scaleMode === SCALE_PHYSICAL ? 0.025 : 0.24);
+  const detectorHalf = Math.max(symbolSpan * 0.12, scaleMode === SCALE_PHYSICAL ? 0.04 : 0.34);
+  const crystalHalf = Math.max(symbolSpan * 0.095, scaleMode === SCALE_PHYSICAL ? 0.03 : 0.28);
   const rayHalf = crystalHalf * 0.42;
 
   const sourceLine = lineAround(source, { x: 0, y: 1 }, sourceHalf);
@@ -113,9 +121,11 @@ export function buildOpticsGeometry(config = {}, result = null, scaleMode = SCAL
   const rayStartA = point(crystal, crystalTangent, -rayHalf);
   const rayStartB = point(crystal, crystalTangent, rayHalf);
 
-  const focusDistanceM = Math.abs(finite(result?.geometric_focus_m, detectorDistanceM * 0.7));
+  // The API focus is signed: negative is a virtual focus behind the crystal.
+  const signedFocusM = finite(result?.geometric_focus_m, detectorDistanceM * 0.7);
+  const focusDistanceM = Math.abs(signedFocusM);
   const focusDisplay = distanceToDisplay(focusDistanceM, scaleMode);
-  const focusDirection = result?.focus_kind === "virtual" ? -1 : 1;
+  const focusDirection = Math.sign(signedFocusM) || 1;
   const focus = point(crystal, outgoingAxis, focusDisplay * focusDirection);
   const detectorRayA = rayAtDetector(rayStartA, focus, outgoingAxis, qDisplay);
   const detectorRayB = rayAtDetector(rayStartB, focus, outgoingAxis, qDisplay);
@@ -130,6 +140,7 @@ export function buildOpticsGeometry(config = {}, result = null, scaleMode = SCAL
   const rangePoints = [
     source,
     detector,
+    detectorProjection,
     { x: sourceLine.x0, y: sourceLine.y0 },
     { x: sourceLine.x1, y: sourceLine.y1 },
     { x: detectorLine.x0, y: detectorLine.y0 },
@@ -161,6 +172,9 @@ export function buildOpticsGeometry(config = {}, result = null, scaleMode = SCAL
     source,
     crystal,
     detector,
+    detectorProjection,
+    detectorLongitudinalM,
+    detectorTransverseM,
     outgoingAxis,
     detectorNormal,
     crystalTangent,
@@ -175,6 +189,7 @@ export function buildOpticsGeometry(config = {}, result = null, scaleMode = SCAL
     detectorRayA,
     detectorRayB,
     focus,
+    signedFocusM,
     focusDistanceM,
     focusDisplay,
     directEndpoint,
@@ -183,6 +198,22 @@ export function buildOpticsGeometry(config = {}, result = null, scaleMode = SCAL
     xRange: [Math.min(...xValues) - xPadding, Math.max(...xValues) + xPadding],
     yRange: [-yExtent * 1.28, yExtent * 1.28],
   };
+}
+
+export function focusPresentation(geometry, result) {
+  const focusDistance = result?.geometric_focus_m;
+  const render = focusDistance !== null && focusDistance !== undefined && focusDistance !== "" &&
+    Number.isFinite(Number(focusDistance)) &&
+    Number.isFinite(geometry?.focus?.x) && Number.isFinite(geometry?.focus?.y);
+  if (!render) return { render: false, outsideInitialView: false };
+
+  // Visibility in the initial viewport is independent of whether the focus
+  // belongs in Plotly data. Keep distant points so pan/zoom can reveal them.
+  const insideInitialView = geometry.focus.x >= geometry.xRange[0] &&
+    geometry.focus.x <= geometry.xRange[1] &&
+    geometry.focus.y >= geometry.yRange[0] &&
+    geometry.focus.y <= geometry.yRange[1];
+  return { render: true, outsideInitialView: !insideInitialView };
 }
 
 function hasShapeUpdate(update, index) {
@@ -217,26 +248,38 @@ export function distanceChangeFromRelayout(update, geometry, scaleMode = SCALE_S
   if (!geometry || !update) return null;
 
   if (hasShapeUpdate(update, SOURCE_SHAPE_INDEX)) {
+    if (!isDistanceDraggable(geometry.sourceDistanceM)) return null;
     const line = updatedLine(update, SOURCE_SHAPE_INDEX, geometry.sourceLine);
     const displayDistance = (line.x0 + line.x1) / 2;
     return {
       target: "source",
       field: "source_distance_m",
-      value: Number(displayToDistance(displayDistance, scaleMode).toFixed(4)),
+      value: Number(clamp(displayToDistance(displayDistance, scaleMode), DISTANCE_MIN_M, DISTANCE_MAX_M).toFixed(4)),
     };
   }
 
   if (hasShapeUpdate(update, DETECTOR_SHAPE_INDEX)) {
+    if (!isDistanceDraggable(geometry.detectorDistanceM)) return null;
     const line = updatedLine(update, DETECTOR_SHAPE_INDEX, geometry.detectorLine);
     const center = { x: (line.x0 + line.x1) / 2, y: (line.y0 + line.y1) / 2 };
     const displayDistance = dot(center, geometry.outgoingAxis);
     return {
       target: "detector",
       field: "detector_distance_m",
-      value: Number(displayToDistance(displayDistance, scaleMode).toFixed(4)),
+      value: Number(clamp(displayToDistance(displayDistance, scaleMode), DISTANCE_MIN_M, DISTANCE_MAX_M).toFixed(4)),
     };
   }
 
   return null;
 }
 
+export function distanceRelayoutAction(update, geometry, scaleMode = SCALE_SCHEMATIC) {
+  const change = distanceChangeFromRelayout(update, geometry, scaleMode);
+  if (!change) return null;
+  const current = change.target === "source" ? geometry.sourceDistanceM : geometry.detectorDistanceM;
+  // Plotly can move a handle perpendicular to its ray while its projected p/q
+  // stays unchanged. That edit still needs an editrevision to restore the line.
+  return change.value === Number(current.toFixed(4))
+    ? { kind: "reset", target: change.target }
+    : { kind: "commit", change };
+}

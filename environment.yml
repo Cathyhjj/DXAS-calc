@@ -1,3 +1,5 @@
+# Legacy Notebook environment. The web application requires Python 3.9+;
+# use requirements.txt or pyproject.toml for the web service.
 name: dxascalc
 channels:
   - defaults

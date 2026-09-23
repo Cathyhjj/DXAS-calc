@@ -97,6 +97,7 @@ export function FieldControl({
       <div className="field-control__label-row field-label">
         <label className="field-control__label" htmlFor={id}>
           {label}
+          {unit ? <span className="sr-only"> ({unit})</span> : null}
         </label>
         {hint ? (
           <span className="field-control__hint-icon" title={hint}>

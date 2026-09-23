@@ -7,11 +7,13 @@ changing the web application.
 
 ## Units
 
-Public inputs use units that beamline users commonly enter:
+The desktop web interface accepts photon energy in eV. The JSON API and v1
+saved configuration files retain `energy_kev` in keV; conversion happens at the
+interface boundary. Other public inputs use the units below:
 
 | Quantity | Public unit | Internal unit |
 | --- | --- | --- |
-| Photon energy | keV | keV |
+| Photon energy | eV in web UI; keV in API and saved files | keV |
 | Source and detector distances | m | m |
 | Full angular divergence | mrad | rad |
 | Bending radius | m | m |
@@ -57,6 +59,12 @@ of those three response functions.
 The total remains a model estimate, not a measured line-spread function. The
 Laue result warns that a separate detector-space Borrmann-fan broadening term
 is not included.
+
+If an enrichment term overflows or cannot be computed, the API preserves valid
+geometry and crystal metrics, returns `null` for unavailable resolution terms,
+and includes a specific warning. It does not substitute zero or infer a total
+from the remaining terms. Responses are encoded as strict JSON without
+non-finite numeric literals.
 
 ## Legacy compatibility and unresolved assumptions
 

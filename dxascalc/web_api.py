@@ -8,6 +8,8 @@ and can serve an explicitly supplied production frontend build.
 from __future__ import annotations
 
 from dataclasses import fields
+import json
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +160,37 @@ def _preset_payloads() -> list[dict[str, Any]]:
     return presets
 
 
+def _absorption_edge_payloads() -> list[dict[str, Any]]:
+    """List xraylib's available K and L absorption edges in keV."""
+    import xraylib
+
+    shells = (
+        ("K", xraylib.K_SHELL),
+        ("L1", xraylib.L1_SHELL),
+        ("L2", xraylib.L2_SHELL),
+        ("L3", xraylib.L3_SHELL),
+    )
+    elements = []
+    for atomic_number in range(1, 101):
+        edges_kev = {}
+        for edge_name, shell in shells:
+            try:
+                energy_kev = xraylib.EdgeEnergy(atomic_number, shell)
+            except ValueError:
+                # Some low-Z elements do not have every L shell.
+                continue
+            if energy_kev > 0 and isfinite(energy_kev):
+                edges_kev[edge_name] = energy_kev
+        elements.append(
+            {
+                "symbol": xraylib.AtomicNumberToSymbol(atomic_number),
+                "atomic_number": atomic_number,
+                "edges_kev": edges_kev,
+            }
+        )
+    return elements
+
+
 def _invalid_json_response(message: str):
     return (
         jsonify(
@@ -168,6 +201,24 @@ def _invalid_json_response(message: str):
         ),
         400,
     )
+
+
+def _first_nonfinite_field(value: Any, path: str = "") -> str | None:
+    """Locate an invalid computed number for a structured API error."""
+
+    if isinstance(value, float) and not isfinite(value):
+        return path
+    if isinstance(value, dict):
+        for name, child in value.items():
+            found = _first_nonfinite_field(child, f"{path}.{name}" if path else str(name))
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            found = _first_nonfinite_field(child, f"{path}[{index}]")
+            if found is not None:
+                return found
+    return None
 
 
 def create_app(
@@ -202,6 +253,10 @@ def create_app(
     @app.get("/api/presets")
     def presets():
         return jsonify({"presets": _preset_payloads()})
+
+    @app.get("/api/absorption-edges")
+    def absorption_edges():
+        return jsonify({"elements": _absorption_edge_payloads()})
 
     @app.post("/api/calculate")
     def calculate_endpoint():
@@ -282,7 +337,35 @@ def create_app(
 
         result = resolution_enricher(config, result)
 
-        return jsonify({"result": result.to_dict()})
+        result_payload = result.to_dict()
+        try:
+            # Flask's default JSON encoder permits Infinity/NaN. Explicitly
+            # use the strict JSON contract accepted by browser JSON parsers.
+            body = json.dumps({"result": result_payload}, allow_nan=False)
+        except (TypeError, ValueError, OverflowError):
+            field = _first_nonfinite_field(result_payload)
+            message = (
+                f"The computed value {field} is not finite."
+                if field is not None
+                else "The computed result could not be serialized as JSON."
+            )
+            return (
+                jsonify(
+                    {
+                        "error": "calculation_unavailable",
+                        "issues": [
+                            {
+                                "level": "error",
+                                "code": "nonfinite_result" if field is not None else "result_serialization_failed",
+                                "message": message,
+                                "field": field,
+                            }
+                        ],
+                    }
+                ),
+                503,
+            )
+        return app.response_class(body, mimetype="application/json")
 
     if frontend_root is not None:
 

@@ -54,6 +54,10 @@ class ReflectivityUnavailableError(RuntimeError):
     """Raised when neither the XOP nor flat-crystal fallback can run."""
 
 
+class _ReflectivityBusyError(ReflectivityUnavailableError):
+    """A capacity limit must not start an additional fallback solver."""
+
+
 @dataclass(frozen=True)
 class ReflectivitySolution:
     """Immutable, cache-safe crystal response on an energy-offset grid."""
@@ -87,7 +91,10 @@ def _invoke_solver(
 def _finite_float(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{label} must be a finite real number")
-    converted = float(value)
+    try:
+        converted = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{label} must be a finite real number") from exc
     if not math.isfinite(converted):
         raise ValueError(f"{label} must be a finite real number")
     return converted
@@ -205,7 +212,10 @@ def source_size_resolution_ev_fwhm(
         * 1.0e-6
         / _finite_float(config.source_distance_m, "source distance")
     )
-    return abs(float(config.energy_kev) * 1000.0 * source_rad / tangent)
+    return _finite_float(
+        abs(float(config.energy_kev) * 1000.0 * source_rad / tangent),
+        "source-size energy resolution",
+    )
 
 
 def _select_curve(
@@ -499,6 +509,8 @@ def _solve_cached(
     polarization: str,
     bragg_angle_deg: float,
 ) -> ReflectivitySolution:
+    """Cache only successful bent-crystal XOP runs, never a fallback result."""
+
     arguments = dict(
         material=material,
         h=h,
@@ -516,14 +528,11 @@ def _solve_cached(
         timeout=_SOLVER_ACQUIRE_TIMEOUT_SECONDS
     )
     if not acquired:
-        raise ReflectivityUnavailableError(
+        raise _ReflectivityBusyError(
             "The reflectivity solver is busy; retry this configuration shortly."
         )
     try:
-        try:
-            return _solve_with_xop(**arguments)
-        except Exception as primary_error:
-            return _solve_with_crystalpy(primary_error=primary_error, **arguments)
+        return _solve_with_xop(**arguments)
     finally:
         _SOLVER_CONCURRENCY.release()
 
@@ -531,7 +540,7 @@ def _solve_cached(
 def solve_crystal_reflectivity(
     config: DXASConfig, bragg_angle_deg: float
 ) -> ReflectivitySolution:
-    """Calculate and cache the selected bent-crystal reflectivity response."""
+    """Cache XOP success; retry XOP after temporary flat-crystal fallback."""
 
     material = config.material.value if isinstance(config.material, Material) else str(config.material)
     geometry = config.geometry.value if isinstance(config.geometry, GeometryType) else str(config.geometry).lower()
@@ -540,19 +549,38 @@ def solve_crystal_reflectivity(
         if isinstance(config.polarization, Polarization)
         else str(config.polarization).lower()
     )
-    return _solve_cached(
-        material,
-        int(config.h),
-        int(config.k),
-        int(config.l),
-        float(config.energy_kev) * 1000.0,
-        geometry,
-        float(config.asymmetry_angle_deg),
-        float(config.crystal_thickness_um),
-        float(config.bending_radius_m),
-        polarization,
-        float(bragg_angle_deg),
+    arguments = dict(
+        material=material,
+        h=int(config.h),
+        k=int(config.k),
+        l=int(config.l),
+        energy_ev=float(config.energy_kev) * 1000.0,
+        geometry=geometry,
+        asymmetry_angle_deg=float(config.asymmetry_angle_deg),
+        thickness_um=float(config.crystal_thickness_um),
+        radius_m=float(config.bending_radius_m),
+        polarization=polarization,
+        bragg_angle_deg=float(bragg_angle_deg),
     )
+    try:
+        return _solve_cached(**arguments)
+    except _ReflectivityBusyError:
+        raise
+    except Exception as primary_error:
+        # A fallback may be scientifically useful for this request, but a
+        # subsequent request must retry the primary bent-crystal model. Keep
+        # the fallback under the same bounded solver capacity as XOP.
+        acquired = _SOLVER_CONCURRENCY.acquire(
+            timeout=_SOLVER_ACQUIRE_TIMEOUT_SECONDS
+        )
+        if not acquired:
+            raise _ReflectivityBusyError(
+                "The reflectivity solver is busy; retry this configuration shortly."
+            ) from primary_error
+        try:
+            return _solve_with_crystalpy(primary_error=primary_error, **arguments)
+        finally:
+            _SOLVER_CONCURRENCY.release()
 
 
 def _trapezoid_integral(x: Sequence[float], y: Sequence[float]) -> float:
@@ -590,6 +618,18 @@ def _serialized_curve(solution: ReflectivitySolution) -> dict[str, object]:
         "display_points": len(indices),
         "source_points": source_points,
     }
+
+
+def _validate_solution_curve(solution: ReflectivitySolution) -> None:
+    """Keep non-finite solver output out of the browser curve payload."""
+
+    expected_points = len(solution.energy_offset_ev)
+    for name in ("energy_offset_ev", "sigma", "pi", "selected"):
+        values = getattr(solution, name)
+        if len(values) != expected_points:
+            raise ValueError("Reflectivity curve arrays must have matching lengths")
+        for value in values:
+            _finite_float(value, f"reflectivity {name} value")
 
 
 def _convolve_same(values: Sequence[float], kernel: Sequence[float]) -> Tuple[float, ...]:
@@ -667,6 +707,8 @@ def _enrich_with_intrinsic_resolution_unbounded(
 
     try:
         solution = _invoke_solver(solver, config, result.bragg_angle_deg)
+        _validate_solution_curve(solution)
+        curve = _serialized_curve(solution)
     except Exception as exc:
         issue = CalculationIssue(
             level="warning",
@@ -684,7 +726,6 @@ def _enrich_with_intrinsic_resolution_unbounded(
 
     x = solution.energy_offset_ev
     selected = solution.selected
-    curve = _serialized_curve(solution)
     warnings = list(result.warnings)
     for code, message in solution.warning_messages:
         warnings.append(CalculationIssue("warning", code, message, None))
@@ -714,11 +755,15 @@ def _enrich_with_intrinsic_resolution_unbounded(
             / (float(config.energy_kev) * 1000.0)
             * 1.0e6
         )
-        source_ev = source_size_resolution_ev_fwhm(config, result.bragg_angle_deg)
+        intrinsic_urad = _finite_float(intrinsic_urad, "intrinsic angular width")
         dx_values = [right - left for left, right in zip(x, x[1:])]
-        dx = sum(dx_values) / len(dx_values)
-        reflectivity_peak = max(selected)
-        reflectivity_integrated = _trapezoid_integral(x, selected)
+        dx = _finite_float(sum(dx_values) / len(dx_values), "reflectivity grid spacing")
+        if dx <= 0.0:
+            raise ValueError("Reflectivity grid spacing must be positive")
+        reflectivity_peak = _finite_float(max(selected), "reflectivity peak")
+        reflectivity_integrated = _finite_float(
+            _trapezoid_integral(x, selected), "reflectivity integrated intensity"
+        )
     except Exception as exc:
         issue = CalculationIssue(
             level="warning",
@@ -731,6 +776,30 @@ def _enrich_with_intrinsic_resolution_unbounded(
             reflectivity_curve=curve,
             reflectivity_model=solution.model,
             warnings=tuple(warnings) + (issue,),
+        )
+
+    try:
+        source_ev = source_size_resolution_ev_fwhm(config, result.bragg_angle_deg)
+    except (ValueError, OverflowError, ZeroDivisionError) as exc:
+        warnings.append(
+            CalculationIssue(
+                level="warning",
+                code="source_size_resolution_unavailable",
+                message=f"Source-size energy resolution could not be calculated: {exc}",
+                field="source_size_um",
+            )
+        )
+        return replace(
+            result,
+            crystal_intrinsic_resolution_ev_fwhm=intrinsic_ev,
+            crystal_intrinsic_width_urad_fwhm=intrinsic_urad,
+            reflectivity_curve=curve,
+            reflectivity_peak=reflectivity_peak,
+            reflectivity_integrated=reflectivity_integrated,
+            reflectivity_model=solution.model,
+            warnings=tuple(warnings),
+            assumptions=result.assumptions
+            + ("Total resolution is unavailable because the source-size energy width could not be represented as a finite number.",),
         )
 
     try:

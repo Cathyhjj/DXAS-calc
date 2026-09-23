@@ -22,6 +22,7 @@ from dxascalc.reflectivity import (
     combine_resolution_fwhm,
     enrich_with_intrinsic_resolution,
     interpolated_fwhm,
+    solve_crystal_reflectivity,
     source_size_resolution_ev_fwhm,
     xop_asymmetry_angle_deg,
 )
@@ -169,6 +170,15 @@ class SourceSizeResolutionTests(unittest.TestCase):
         self.assertAlmostEqual(twice_size, 2.0 * base, places=12)
         self.assertAlmostEqual(twice_distance, 0.5 * base, places=12)
 
+    def test_finite_inputs_cannot_return_nonfinite_energy_resolution(self) -> None:
+        extreme = replace(
+            self.config,
+            source_size_um=1.0e308,
+            source_distance_m=0.01,
+        )
+        with self.assertRaisesRegex(ValueError, "source-size energy resolution"):
+            source_size_resolution_ev_fwhm(extreme, 14.308610318658809)
+
 
 class ResolutionEnrichmentTests(unittest.TestCase):
     @staticmethod
@@ -304,6 +314,48 @@ class ResolutionEnrichmentTests(unittest.TestCase):
             )
         )
 
+    def test_source_width_overflow_keeps_finite_crystal_results(self) -> None:
+        config = DXASConfig(source_size_um=1.0e308, source_distance_m=0.01)
+        result = enrich_with_intrinsic_resolution(
+            config,
+            calculate(config),
+            solver=self._deterministic_solver,
+        )
+
+        self.assertEqual(result.reflectivity_model, "deterministic-test-model")
+        self.assertEqual(result.crystal_intrinsic_resolution_ev_fwhm, 2.0)
+        self.assertIsNotNone(result.reflectivity_curve)
+        self.assertIsNone(result.source_size_resolution_ev_fwhm)
+        self.assertIsNone(result.total_resolution_ev_fwhm)
+        self.assertTrue(
+            any(
+                warning.code == "source_size_resolution_unavailable"
+                and warning.field == "source_size_um"
+                for warning in result.warnings
+            )
+        )
+        json.dumps(result.to_dict(), allow_nan=False)
+
+    def test_nonfinite_unused_polarization_curve_is_not_serialized(self) -> None:
+        def invalid_solver(_config: DXASConfig) -> ReflectivitySolution:
+            return replace(
+                self._deterministic_solver(_config),
+                pi=(0.0, 0.5, math.inf, 0.5, 0.0),
+            )
+
+        config = DXASConfig(polarization="sigma")
+        result = enrich_with_intrinsic_resolution(
+            config,
+            calculate(config),
+            solver=invalid_solver,
+        )
+        self.assertEqual(result.reflectivity_model, "unavailable")
+        self.assertIsNone(result.reflectivity_curve)
+        self.assertTrue(
+            any(warning.code == "reflectivity_unavailable" for warning in result.warnings)
+        )
+        json.dumps(result.to_dict(), allow_nan=False)
+
     def test_laue_result_discloses_unmodeled_borrmann_spatial_term(self) -> None:
         config = DXASConfig(
             geometry=GeometryType.LAUE,
@@ -436,6 +488,77 @@ class ReflectivityResourceBoundTests(unittest.TestCase):
             self.assertFalse(
                 any(warning.code == "resolution_enrichment_busy" for warning in failed.warnings)
             )
+
+
+class ReflectivityCacheTests(unittest.TestCase):
+    def setUp(self) -> None:
+        reflectivity_module._solve_cached.cache_clear()
+
+    def tearDown(self) -> None:
+        reflectivity_module._solve_cached.cache_clear()
+
+    def test_fallback_is_retried_and_replaced_by_cached_xop_success(self) -> None:
+        config = DXASConfig()
+        angle = calculate(config).bragg_angle_deg
+        xop = ReflectivitySolution(
+            energy_offset_ev=(-1.0, 0.0, 1.0),
+            sigma=(0.0, 1.0, 0.0),
+            pi=(0.0, 1.0, 0.0),
+            selected=(0.0, 1.0, 0.0),
+            model="XOP bent crystal",
+        )
+        fallback = replace(
+            xop,
+            model="crystalpy flat fallback",
+            warning_messages=(("flat_crystal_reflectivity_fallback", "XOP failed"),),
+        )
+        with (
+            mock.patch.object(
+                reflectivity_module,
+                "_solve_with_xop",
+                side_effect=(TimeoutError("temporary timeout"), xop),
+            ) as primary,
+            mock.patch.object(
+                reflectivity_module,
+                "_solve_with_crystalpy",
+                return_value=fallback,
+            ) as secondary,
+        ):
+            first = solve_crystal_reflectivity(config, angle)
+            self.assertEqual(reflectivity_module._solve_cached.cache_info().currsize, 0)
+            second = solve_crystal_reflectivity(config, angle)
+            third = solve_crystal_reflectivity(config, angle)
+
+        self.assertEqual(first.model, "crystalpy flat fallback")
+        self.assertEqual(first.warning_messages[0][0], "flat_crystal_reflectivity_fallback")
+        self.assertEqual(second.model, "XOP bent crystal")
+        self.assertFalse(second.warning_messages)
+        self.assertIs(third, second)
+        self.assertEqual(primary.call_count, 2)
+        self.assertEqual(secondary.call_count, 1)
+        self.assertEqual(reflectivity_module._solve_cached.cache_info().currsize, 1)
+
+    def test_busy_solver_does_not_start_unbounded_fallback(self) -> None:
+        semaphore = reflectivity_module._SOLVER_CONCURRENCY
+        self.assertTrue(semaphore.acquire(timeout=0.0))
+        self.assertTrue(semaphore.acquire(timeout=0.0))
+        try:
+            with (
+                mock.patch.object(reflectivity_module, "_SOLVER_ACQUIRE_TIMEOUT_SECONDS", 0.01),
+                mock.patch.object(reflectivity_module, "_solve_with_xop") as primary,
+                mock.patch.object(reflectivity_module, "_solve_with_crystalpy") as secondary,
+            ):
+                config = DXASConfig()
+                with self.assertRaisesRegex(
+                    reflectivity_module.ReflectivityUnavailableError,
+                    "solver is busy",
+                ):
+                    solve_crystal_reflectivity(config, calculate(config).bragg_angle_deg)
+                primary.assert_not_called()
+                secondary.assert_not_called()
+        finally:
+            semaphore.release()
+            semaphore.release()
 
 
 if __name__ == "__main__":
