@@ -37,6 +37,7 @@ import { requestCalculation } from "./lib/apiClient.js";
 import { createCalculationSession, sameScientificConfig } from "./lib/calculationSession.js";
 import { formatMetricDelta, formatValue, hasMetric, unavailableReason } from "./lib/formatMetrics.js";
 import { formatComparisonDelta } from "./lib/comparisonData.js";
+import { VersionBadge } from "./components/VersionBadge.jsx";
 
 const MATERIAL_OPTIONS = [
   { value: "Si", label: "Silicon (Si)" },
@@ -1412,6 +1413,8 @@ export function App() {
         <p>DXASCalc · Geometry, reflectivity, and resolution workspace</p>
         <p>Distances in m · thickness in µm · angles in degrees or mrad · energy in eV</p>
       </footer>
+
+      <VersionBadge />
 
       {aboutOpen ? (
         <AboutDialog

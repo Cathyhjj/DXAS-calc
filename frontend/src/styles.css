@@ -2593,10 +2593,26 @@ select:focus-visible,
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 22px;
+  padding: 0 22px 14px;
   color: var(--text-faint);
   background: var(--canvas);
   font-size: 9px;
+}
+
+.version-badge {
+  position: fixed;
+  right: 8px;
+  bottom: 4px;
+  z-index: 40;
+  user-select: none;
+  color: rgba(105, 112, 131, 0.7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.version-badge:hover {
+  color: var(--text-soft);
 }
 
 .app-footer p {
