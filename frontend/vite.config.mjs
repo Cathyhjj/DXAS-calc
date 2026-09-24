@@ -1,7 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { resolveBuildInfo } from "./build-info.mjs";
 
 export default defineConfig({
+  define: {
+    __BUILD_INFO__: JSON.stringify(resolveBuildInfo()),
+  },
   optimizeDeps: {
     include: ["react", "react-dom/client"],
   },
