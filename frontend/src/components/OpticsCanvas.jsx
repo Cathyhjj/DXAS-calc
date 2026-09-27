@@ -410,7 +410,7 @@ export function makeOpticsFigure(geometry, config, result, scaleMode, shapeRevis
     showarrow: false,
     bgcolor: "rgba(255, 253, 250, 0.86)",
     borderpad: 3,
-    font: { family: "Inter, sans-serif", size: 10, color: COLORS.ink },
+    font: { family: "Figtree, sans-serif", size: 10, color: COLORS.ink },
   };
   const annotations = [
     {
@@ -518,7 +518,7 @@ export function makeOpticsFigure(geometry, config, result, scaleMode, shapeRevis
     autosize: true,
     paper_bgcolor: COLORS.background,
     plot_bgcolor: COLORS.background,
-    font: { family: "Inter, sans-serif", color: COLORS.ink },
+    font: { family: "Figtree, sans-serif", color: COLORS.ink },
     margin: physical ? { l: 54, r: 24, t: 44, b: 60 } : { l: 20, r: 20, t: 40, b: 28 },
     hovermode: "closest",
     dragmode: "pan",
@@ -792,7 +792,7 @@ export function OpticsCanvas({
         shapePosition: true,
         titleText: false,
       },
-      scrollZoom: true,
+      scrollZoom: false,
       doubleClick: "reset",
       displaylogo: false,
       displayModeBar: true,

@@ -10,11 +10,12 @@ const ENUM_VALUES = {
 // Inputs keep their editable strings. This representation is used only to decide
 // whether an accepted result describes the current scientific parameters.
 export function canonicalConfig(config) {
-  if (!config || typeof config !== "object") return null;
+  if (!config || typeof config !== "object" || Array.isArray(config)) return null;
   const canonical = {};
   for (const key of Object.keys(DEFAULT_CONFIG)) {
     const value = config[key];
     if (NUMERIC_FIELDS.includes(key)) {
+      if (typeof value !== "number" && typeof value !== "string") return null;
       if (value === null || value === undefined || String(value).trim() === "") return null;
       const number = Number(value);
       if (!Number.isFinite(number)) return null;
@@ -38,11 +39,11 @@ function splitIssues(issues) {
   const fieldErrors = {};
   const generalIssues = [];
   for (const issue of issues) {
-    if (issue?.field && issue?.message) {
+    if (typeof issue?.field === "string" && typeof issue?.message === "string") {
       fieldErrors[issue.field] = fieldErrors[issue.field]
         ? `${fieldErrors[issue.field]} ${issue.message}`
         : issue.message;
-    } else if (issue?.message) {
+    } else if (typeof issue?.message === "string") {
       generalIssues.push(issue.message);
     }
   }
@@ -116,12 +117,13 @@ export function createCalculationSession(initialDraft, request, notify = () => {
         });
         return { kind: "invalid", id, owned, issues };
       }
-      if (!response.ok || !response.payload?.result) {
+      const result = response.payload?.result;
+      if (!response.ok || !result || Array.isArray(result) || !Number.isFinite(result.bragg_angle_deg)) {
         const issueMessages = Array.isArray(response.payload?.issues)
-          ? response.payload.issues.map((issue) => issue?.message).filter(Boolean)
+          ? response.payload.issues.map((issue) => issue?.message).filter((message) => typeof message === "string")
           : [];
         throw new Error(
-          response.payload?.message
+          (typeof response.payload?.message === "string" ? response.payload.message : "")
           || issueMessages.join(" ")
           || "The calculation service returned an unexpected response.",
         );

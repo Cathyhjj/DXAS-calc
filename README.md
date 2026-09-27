@@ -73,11 +73,32 @@ the interface converts at the input boundary.
 
 ## Save and load configurations
 
-Open the three-dot application menu and choose **Save input configuration** to download
-the current setup as a versioned JSON file. Choose **Load configuration** to open
+Use **Save** and **Load** in the desktop toolbar (or the application menu on a
+small screen) to download the current setup as a versioned JSON file and open
 one of these files. Loading replaces the setup inputs and recalculates them with
 the input-validating API. The file includes all scientific inputs but no calculated
 results, so it can be shared or saved alongside an experiment.
+
+## Workbench controls and recovery
+
+- **Recalculate** or **Ctrl/⌘ + Enter** calculates the edited setup. Diagram
+  distance edits, geometry changes, and presets calculate when applied.
+- Inputs are saved locally in the browser, including unfinished numeric fields.
+  On reopening, those inputs are restored and calculated again. Results and
+  comparison baselines are not stored. If browser storage is unavailable, use
+  **Save** to keep a configuration file.
+- Preset changes, loading a file, and resetting defaults offer **Undo** until
+  another input edit. **Revert to calculated inputs** restores the inputs for
+  the last accepted result.
+- Calculations have a 45-second request timeout and a **Cancel** control. Failed
+  requests retain the edited inputs and last accepted result. **Retry calculation**
+  resubmits the current inputs; unavailable preset and edge lists have their own
+  retry controls. Cancellation stops waiting in the browser; a solver already
+  running on the server can finish within its existing timeout.
+- Narrow screens switch between **Optics & results** and **Parameters**, with
+  the calculate action kept available at the bottom of the parameter view.
+- Select the info icon beside an input to read its explanation. Use the plot
+  toolbar to zoom; the mouse wheel scrolls the page.
 
 ## Test and build
 

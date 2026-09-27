@@ -1,4 +1,20 @@
 import { IconInfoCircle, IconMinus, IconPlus } from "@tabler/icons-react";
+import { useState } from "react";
+
+function FieldHint({ hint, label }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="field-help">
+      <button type="button" className="field-help__toggle" aria-label={`Help for ${label}`}
+        aria-expanded={open} onClick={() => setOpen((previous) => !previous)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setOpen(false); } }}>
+        <IconInfoCircle aria-hidden="true" size={14} stroke={1.8} />
+      </button>
+      {open ? <span className="field-help__text" role="tooltip">{hint}</span> : null}
+    </span>
+  );
+}
 
 function finiteNumber(value) {
   if (value === "" || value === null || value === undefined) {
@@ -100,10 +116,7 @@ export function FieldControl({
           {unit ? <span className="sr-only"> ({unit})</span> : null}
         </label>
         {hint ? (
-          <span className="field-control__hint-icon" title={hint}>
-            <IconInfoCircle aria-hidden="true" size={14} stroke={1.8} />
-            <span className="sr-only">{hint}</span>
-          </span>
+          <FieldHint hint={hint} label={label} />
         ) : null}
       </div>
 

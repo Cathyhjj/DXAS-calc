@@ -1,8 +1,73 @@
 # DXASCalc design QA
 
-## 2026-09-22 refactor check
+## 2026-09-27 UI and robustness review
 
-This section describes the current source in the local Vite preview. It is a
+This review covers the current local implementation and its production build.
+The reference is the local Dr.XAS frontend, especially `app/globals.css` and
+`app/layout.tsx`: warm neutral surfaces, violet actions, Figtree typography,
+compact controls, and clear hierarchy. Earlier audits below are historical.
+
+### Changes and observed behavior
+
+- Consolidated the stylesheet and kept the optical geometry prominent, with a
+  resizable parameter panel on desktop and separate Optics & results / Parameters
+  tabs on small screens. Load and Save are directly visible on desktop.
+- Added locally saved input drafts, Undo after reset/preset/load, and a return
+  to the last calculated inputs. Refresh preserved a blank energy input, a
+  manually entered 75 µm thickness, and p = 2.3 m. Changing geometry preserved
+  the manually entered thickness.
+- Invalid inputs retain the last accepted result with an explicit stale state.
+  Radius = 0 exposed a linked field error; following it focused the invalid
+  radius field. With no accepted calculation, the canvas shows an empty state.
+- Added bounded requests, cancellation, retry controls, plot recovery, and a
+  workspace error boundary. Unit tests exercise network failure, timeout,
+  malformed responses, late responses after cancellation, and unavailable
+  browser storage. Cancellation stops browser waiting; it does not promise to
+  terminate an already running backend calculation.
+- Baseline comparison was exercised from 8000 eV to the Cu K edge at 8978.9 eV.
+  Editing disabled baseline replacement; recalculation restored it and showed
+  the correct input difference. Ctrl+Enter, inline p editing, physical scale,
+  keyboard panel resizing, preset Undo, and reset were exercised.
+- Menu focus, Escape, About-dialog focus containment/restoration, and field
+  error focus were checked. Plot wheel gestures allow normal page scrolling.
+- Bragg and Laue results came from the running backend, with XOP model labels.
+  Default Bragg Si(111), 8000 eV produced 129.0 eV energy span, 11.98 mm beam
+  width, 0.5923 eV/pixel sampling, 1.245 eV total resolution, and 14.31° Bragg
+  angle. Scientific formulas and the eV UI / keV API boundary were preserved.
+- At 320, 390, 820, 1280, and 1440 px, document width matched viewport width.
+  Both mobile tabs were checked. A comparison-panel overflow found during
+  review was fixed, and plots resized correctly after switching tabs.
+- The final production build was opened at `http://127.0.0.1:5002/` with locally
+  bundled Figtree and both Plotly figures rendered. No browser console warnings
+  or errors were observed in that check.
+
+### Automated validation
+
+- `npm test --prefix frontend`: 46 tests passed.
+- `.venv/bin/python -m unittest discover -s tests -v`: 59 tests run, OK, with
+  one opt-in external integration test skipped.
+- `DXASCALC_RUN_XOP_INTEGRATION=1 .venv/bin/python -m unittest discover -s tests -p test_reflectivity.py -v`:
+  26 tests passed, including the enabled XOP integration. These overlap the
+  backend suite above.
+- `npm run build --prefix frontend`: passed. Vite still reports the size of the
+  lazy-loaded Plotly chunk; this is a bundle-size warning, not a build failure.
+
+### Evidence and remaining verification limits
+
+Production screenshots are saved locally under
+`/Users/juanjuan.huang/.codex/visualizations/2026/09/27/01a0e441-faa5-73c1-a2e0-1950ffd3f24a/`:
+`dxascalc-desktop.png` and `dxascalc-desktop-full.png`.
+
+The automation browser did not return download or file-picker events, so the
+Save → download → Load browser round trip remains unverified. Configuration
+serialization, parsing, and invalid input handling have automated coverage.
+A full screen-reader/zoom matrix and exported Plotly PNG overlays were not
+part of this pass. This review does not establish scientific validation beyond
+the existing numerical tests and the observed backend results.
+
+## Archived 2026-09-22 refactor check
+
+This section describes the source at that time in the local Vite preview. It is a
 focused layout and interaction check, not a full accessibility or scientific
 validation. The earlier prototype notes below are archived; their five image
 paths are no longer present in this workspace and their `passed` conclusion

@@ -16,6 +16,7 @@ import {
   IconRefresh,
   IconRulerMeasure,
   IconUpload,
+  IconArrowBackUp,
   IconX,
 } from "@tabler/icons-react";
 import { AboutDialog } from "./components/AboutDialog.jsx";
@@ -33,7 +34,8 @@ import {
   serializeConfiguration,
 } from "./lib/configurationFile.js";
 import { evInputToKev, kevToEvInput } from "./lib/energyUnits.js";
-import { requestCalculation } from "./lib/apiClient.js";
+import { requestCalculation, requestJson } from "./lib/apiClient.js";
+import { browserStorage, readDraft, writeDraft } from "./lib/draftStorage.js";
 import { createCalculationSession, sameScientificConfig } from "./lib/calculationSession.js";
 import { formatMetricDelta, formatValue, hasMetric, unavailableReason } from "./lib/formatMetrics.js";
 import { formatComparisonDelta } from "./lib/comparisonData.js";
@@ -99,6 +101,14 @@ const FIELD_IDS = {
   pixel_size_um: "pixel-size",
 };
 
+const FIELD_LABELS = {
+  material: "Material", h: "Miller index h", k: "Miller index k", l: "Miller index l", hkl: "Reflection (h k l)",
+  energy_kev: "Photon energy", crystal_thickness_um: "Physical thickness", polarization: "Polarization",
+  source_distance_m: "Source–crystal distance p", source_size_um: "Source size FWHM", divergence_mrad: "Full angular divergence",
+  bending_radius_m: "Bending radius R", asymmetry_angle_deg: "Asymmetry angle α", condition: "Condition",
+  detector_distance_m: "Crystal–detector distance q", pixel_size_um: "Pixel size", geometry: "Diffraction geometry",
+};
+
 function resolutionMethodLabel(method) {
   if (!method) return "Combined estimate";
   const normalized = String(method).toLowerCase();
@@ -110,13 +120,18 @@ function resolutionMethodLabel(method) {
 }
 
 export function App() {
+  const [restoredDraft] = useState(() => readDraft(browserStorage()));
+  const [draftSaved, setDraftSaved] = useState(true);
+  const [mobileView, setMobileView] = useState("workbench");
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
+  const [replacementUndo, setReplacementUndo] = useState(null);
   const workspaceRef = useRef(null);
   const workspaceDragRef = useRef(null);
   const [inspectorWidth, setInspectorWidth] = useState(null);
   const [sessionState, setSessionState] = useState(null);
   const sessionRef = useRef(null);
   if (sessionRef.current === null) {
-    sessionRef.current = createCalculationSession(DEFAULT_CONFIG, requestCalculation, setSessionState);
+    sessionRef.current = createCalculationSession(restoredDraft?.config ?? DEFAULT_CONFIG, requestCalculation, setSessionState);
   }
   const calculation = sessionState ?? sessionRef.current.read();
   const config = calculation.draft;
@@ -127,7 +142,7 @@ export function App() {
   const fieldErrors = calculation.error?.fieldErrors ?? {};
   const generalIssues = calculation.error?.generalIssues ?? [];
   const serverError = calculation.error?.kind === "failed" ? calculation.error.message : "";
-  const [energyInputEv, setEnergyInputEv] = useState(() => kevToEvInput(DEFAULT_CONFIG.energy_kev));
+  const [energyInputEv, setEnergyInputEv] = useState(() => restoredDraft?.energyInputEv ?? kevToEvInput(DEFAULT_CONFIG.energy_kev));
   const [presets, setPresets] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [presetsLoading, setPresetsLoading] = useState(true);
@@ -139,7 +154,8 @@ export function App() {
   const [selectedElement, setSelectedElement] = useState("");
   const [baseline, setBaseline] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [fileMessage, setFileMessage] = useState(null);
+  const [fileMessage, setFileMessage] = useState(() => restoredDraft
+    ? { kind: "success", text: "Restored your last inputs. Results are recalculated on opening." } : null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [sections, setSections] = useState({
     crystal: true,
@@ -155,12 +171,13 @@ export function App() {
   const aboutCloseButtonRef = useRef(null);
   const aboutDialogRef = useRef(null);
   const comparisonRef = useRef(null);
-  const thicknessEditedRef = useRef(false);
+  const thicknessEditedRef = useRef(restoredDraft?.thicknessEdited ?? false);
+  const fileLoadSequenceRef = useRef(0);
 
-  const defaultInspectorWidth = () => window.matchMedia("(max-width: 1180px)").matches ? 310 : 324;
+  const defaultInspectorWidth = () => window.matchMedia("(max-width: 1250px)").matches ? 336 : 360;
   const inspectorWidthBounds = () => ({
     min: 260,
-    max: Math.max(260, Math.min(620, (workspaceRef.current?.clientWidth ?? 1100) - 428)),
+    max: Math.max(260, Math.min(620, (workspaceRef.current?.clientWidth ?? 1100) - 432)),
   });
   const resizeInspector = (nextWidth) => {
     const { min, max } = inspectorWidthBounds();
@@ -180,7 +197,7 @@ export function App() {
       if (workspace.clientWidth <= 900) return;
       const width = Number.parseFloat(workspace.style.getPropertyValue("--inspector-width"));
       if (!Number.isFinite(width)) return;
-      const max = Math.max(260, Math.min(620, workspace.clientWidth - 428));
+      const max = Math.max(260, Math.min(620, workspace.clientWidth - 432));
       if (width > max) {
         workspace.style.setProperty("--inspector-width", `${max}px`);
         setInspectorWidth(max);
@@ -200,6 +217,19 @@ export function App() {
     sessionRef.current.edit(nextConfig);
   }, []);
 
+  useEffect(() => {
+    setDraftSaved(writeDraft(browserStorage(), {
+      config, energyInputEv, thicknessEdited: thicknessEditedRef.current,
+    }));
+  }, [config, energyInputEv]);
+
+  useEffect(() => {
+    if (draftSaved || !calculation.revision) return undefined;
+    const warnBeforeLeaving = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [draftSaved, calculation.revision]);
+
   const calculate = useCallback(async (candidate) => {
     const outcome = await sessionRef.current.submit(candidate);
     if (outcome.kind === "invalid" && outcome.owned) {
@@ -215,6 +245,31 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!fileMessage || fileMessage.kind === "error" || fileMessage.canUndo) return undefined;
+    const timer = window.setTimeout(() => setFileMessage(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [fileMessage]);
+
+  useEffect(() => {
+    // CSS hides one pane on small screens; Plotly must measure its visible size
+    // after switching back from Parameters.
+    if (mobileView !== "workbench") return undefined;
+    const frame = window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    return () => window.cancelAnimationFrame(frame);
+  }, [mobileView]);
+
+  useEffect(() => {
+    const handleShortcut = (event) => {
+      if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || aboutOpen || event.isComposing) return;
+      event.preventDefault();
+      const current = sessionRef.current.read();
+      if (!current.pending || !sameScientificConfig(current.draft, current.pending.config)) void calculate(current.draft);
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [aboutOpen, calculate]);
+
+  useEffect(() => {
     const sequence = presetsSequenceRef.current + 1;
     presetsSequenceRef.current = sequence;
     const controller = new AbortController();
@@ -223,12 +278,12 @@ export function App() {
       setPresetsLoading(true);
       setPresetsError("");
       try {
-        const response = await fetch("/api/presets", { signal: controller.signal });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || !Array.isArray(payload?.presets)) {
+        const { ok, payload } = await requestJson("/api/presets", { signal: controller.signal, timeoutMs: 12000 });
+        if (!ok || !Array.isArray(payload?.presets) || !payload.presets.every((preset) =>
+          typeof preset?.id === "string" && typeof preset.name === "string" && sameScientificConfig(preset.config, preset.config))) {
           throw new Error("Preset list is unavailable.");
         }
-        if (sequence !== presetsSequenceRef.current) return;
+        if (controller.signal.aborted || sequence !== presetsSequenceRef.current) return;
         setPresets(payload.presets);
         const defaultPreset = payload.presets.find(
           (preset) => preset.id === "bragg-si111-legacy-safe",
@@ -236,7 +291,7 @@ export function App() {
         // A user may edit the draft before the preset catalog arrives. Keep
         // that draft labeled as custom rather than restoring the default name.
         if (sessionRef.current.read().revision === 0) {
-          setSelectedPresetId(defaultPreset?.id || "");
+          setSelectedPresetId(sameScientificConfig(sessionRef.current.read().draft, defaultPreset?.config) ? defaultPreset.id : "");
         }
       } catch (error) {
         if (error?.name !== "AbortError" && sequence === presetsSequenceRef.current) {
@@ -248,23 +303,27 @@ export function App() {
     }
 
     void loadPresets();
-    void calculate(DEFAULT_CONFIG);
-
     return () => {
       controller.abort();
-      sessionRef.current.cancel();
     };
+  }, [catalogAttempt]);
+
+  useEffect(() => {
+    void calculate(configRef.current);
+    return () => sessionRef.current.cancel();
   }, [calculate]);
 
   useEffect(() => {
     const controller = new AbortController();
     async function loadAbsorptionEdges() {
+      setEdgeCatalogLoading(true);
+      setEdgeCatalogError("");
       try {
-        const response = await fetch("/api/absorption-edges", { signal: controller.signal });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || !Array.isArray(payload?.elements)) {
+        const { ok, payload } = await requestJson("/api/absorption-edges", { signal: controller.signal, timeoutMs: 12000 });
+        if (!ok || !Array.isArray(payload?.elements) || !payload.elements.every((element) => typeof element?.symbol === "string" && element.edges_kev && typeof element.edges_kev === "object")) {
           throw new Error("Element edge energies are unavailable.");
         }
+        if (controller.signal.aborted) return;
         setEdgeElements(payload.elements);
         setEdgeCatalogError("");
       } catch (error) {
@@ -277,18 +336,28 @@ export function App() {
     }
     void loadAbsorptionEdges();
     return () => controller.abort();
-  }, []);
+  }, [catalogAttempt]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
+    menuRef.current?.querySelector(".overflow-menu__popover button")?.focus();
     function handleOutsidePointer(event) {
       if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
     }
     function handleKeyDown(event) {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setMenuOpen(false);
-      menuButtonRef.current?.focus();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        const items = Array.from(menuRef.current?.querySelectorAll(".overflow-menu__popover button") ?? []);
+        if (!items.length) return;
+        event.preventDefault();
+        const index = items.indexOf(document.activeElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items[next].focus();
+      }
     }
     document.addEventListener("pointerdown", handleOutsidePointer);
     document.addEventListener("keydown", handleKeyDown);
@@ -361,6 +430,7 @@ export function App() {
 
   const handleFieldChange = useCallback(
     (field, value) => {
+      setReplacementUndo(null);
       if (field === "crystal_thickness_um") thicknessEditedRef.current = true;
       const next = { ...configRef.current, [field]: value };
       commitConfig(next);
@@ -401,6 +471,7 @@ export function App() {
   const handleGeometryChange = useCallback(
     (geometry) => {
       if (configRef.current.geometry === geometry) return;
+      setReplacementUndo(null);
       const next = {
         ...configRef.current,
         geometry,
@@ -420,6 +491,8 @@ export function App() {
       setSelectedPresetId(presetId);
       const preset = presets.find((item) => item.id === presetId);
       if (!preset?.config) return;
+      setReplacementUndo({ config: { ...configRef.current }, energyInputEv, thicknessEdited: thicknessEditedRef.current });
+      setFileMessage({ kind: "success", text: `Loaded ${preset.name}.`, canUndo: true });
       const next = cloneConfig(preset.config);
       thicknessEditedRef.current = false;
       commitConfig(next);
@@ -427,7 +500,7 @@ export function App() {
       setSelectedElement("");
       void calculate(next);
     },
-    [calculate, commitConfig, presets],
+    [calculate, commitConfig, presets, energyInputEv],
   );
 
   const handleDiagramDistanceChange = useCallback(
@@ -435,6 +508,7 @@ export function App() {
       if (!["source_distance_m", "detector_distance_m"].includes(field)) return;
       const distance = Number(distanceMeters);
       if (!Number.isFinite(distance)) return;
+      setReplacementUndo(null);
       const next = { ...configRef.current, [field]: distance };
       commitConfig(next);
       setSelectedPresetId("");
@@ -455,6 +529,7 @@ export function App() {
   );
 
   const handleReset = useCallback(() => {
+    setReplacementUndo({ config: { ...configRef.current }, energyInputEv, thicknessEdited: thicknessEditedRef.current });
     const next = cloneConfig(DEFAULT_CONFIG);
     thicknessEditedRef.current = false;
     commitConfig(next);
@@ -463,9 +538,33 @@ export function App() {
     setSelectedEdge("K");
     setSelectedPresetId("bragg-si111-legacy-safe");
     setMenuOpen(false);
-    setFileMessage(null);
+    setFileMessage({ kind: "success", text: "Default Bragg setup restored.", canUndo: true });
     void calculate(next);
-  }, [calculate, commitConfig]);
+  }, [calculate, commitConfig, energyInputEv]);
+
+  const handleUndoReplacement = useCallback(() => {
+    if (!replacementUndo) return;
+    sessionRef.current.cancel();
+    thicknessEditedRef.current = replacementUndo.thicknessEdited;
+    commitConfig(replacementUndo.config);
+    setEnergyInputEv(replacementUndo.energyInputEv);
+    setSelectedElement("");
+    setSelectedPresetId("");
+    setReplacementUndo(null);
+    setFileMessage({ kind: "success", text: "Previous inputs restored." });
+    void calculate(replacementUndo.config);
+  }, [calculate, commitConfig, replacementUndo]);
+
+  const handleRevert = useCallback(() => {
+    if (!calculatedConfig) return;
+    sessionRef.current.cancel();
+    thicknessEditedRef.current = true;
+    commitConfig(cloneConfig(calculatedConfig));
+    setEnergyInputEv(kevToEvInput(calculatedConfig.energy_kev));
+    setSelectedElement("");
+    setSelectedPresetId("");
+    setReplacementUndo(null);
+  }, [calculatedConfig, commitConfig]);
 
   const handleSaveConfiguration = useCallback(() => {
     setMenuOpen(false);
@@ -480,7 +579,7 @@ export function App() {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setFileMessage({ kind: "success", text: `Input configuration saved as ${filename}. Loading it later will recalculate the result.` });
+      setFileMessage({ kind: "success", text: `Configuration download started: ${filename}.` });
     } catch (error) {
       setFileMessage({ kind: "error", text: error.message || "Could not save this configuration." });
     }
@@ -490,22 +589,31 @@ export function App() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    const sequence = ++fileLoadSequenceRef.current;
+    const revision = sessionRef.current.read().revision;
     try {
       if (file.size > 64 * 1024) {
         throw new Error("Configuration files must be smaller than 64 KB.");
       }
       const next = parseConfiguration(await file.text());
+      if (sequence !== fileLoadSequenceRef.current) return;
+      if (revision !== sessionRef.current.read().revision) {
+        setFileMessage({ kind: "error", text: "Inputs changed while the file was opening. Load it again to replace them." });
+        return;
+      }
+      setReplacementUndo({ config: { ...configRef.current }, energyInputEv, thicknessEdited: thicknessEditedRef.current });
       thicknessEditedRef.current = true;
       commitConfig(next);
       setEnergyInputEv(kevToEvInput(next.energy_kev));
       setSelectedElement("");
       setSelectedPresetId("");
-      setFileMessage({ kind: "success", text: `Loaded ${file.name}.` });
+      setFileMessage({ kind: "success", text: `Loaded ${file.name}.`, canUndo: true });
       void calculate(next);
     } catch (error) {
+      if (sequence !== fileLoadSequenceRef.current) return;
       setFileMessage({ kind: "error", text: error.message || "Could not load this configuration." });
     }
-  }, [calculate, commitConfig]);
+  }, [calculate, commitConfig, energyInputEv]);
 
   const saveCurrentAsBaseline = useCallback(() => {
     if (!result || !calculatedConfig || !calculation.isCurrent || loading || calculation.error) return;
@@ -524,6 +632,7 @@ export function App() {
   }, []);
 
   const focusErrorField = useCallback((field) => {
+    setMobileView("parameters");
     setSections((previous) => ({ ...previous, [FIELD_SECTIONS[field] ?? "crystal"]: true }));
     window.requestAnimationFrame(() => {
       const target = field === "geometry"
@@ -572,7 +681,7 @@ export function App() {
           <img className="brand__logo brand-logo" src="/brand/dr-xas-logo.png" alt="Dr. XAS" />
           <span className="brand__copy brand-copy">
             <h1>DXASCalc</h1>
-            <p>Dispersive X-ray absorption geometry calculator</p>
+            <p>Dispersive X-ray optics</p>
           </span>
         </a>
 
@@ -598,7 +707,7 @@ export function App() {
 
           <div className="header-preset header-control-group">
             <label className="header-control-label" htmlFor="preset-select">
-              Example preset
+              Starting setup
             </label>
             <div className="header-preset__select-wrap">
               <select
@@ -609,7 +718,7 @@ export function App() {
                 disabled={presetsLoading || !presets.length}
                 aria-describedby={presetsError ? "preset-error" : undefined}
               >
-                <option value="">Custom setup</option>
+                <option value="">{presetsLoading ? "Loading presets…" : "Custom setup"}</option>
                 {presets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.name}
@@ -619,19 +728,26 @@ export function App() {
             </div>
             {presetsError ? (
               <span className="header-preset__error" id="preset-error" role="status">
-                {presetsError}
+                Presets unavailable. <button type="button" onClick={() => setCatalogAttempt((attempt) => attempt + 1)}>Retry</button>
               </span>
             ) : null}
           </div>
         </div>
 
         <div className="header-actions">
+          <button className="button button--quiet configuration-action" type="button" onClick={() => configurationInputRef.current?.click()} title="Load input configuration">
+            <IconUpload aria-hidden="true" size={17} /><span>Load</span>
+          </button>
+          <button className="button button--quiet configuration-action" type="button" onClick={handleSaveConfiguration} title="Save input configuration">
+            <IconDownload aria-hidden="true" size={17} /><span>Save</span>
+          </button>
           <button
             className="button button--primary primary-action"
             type="button"
             onClick={() => void calculate(configRef.current)}
             disabled={!canSubmit}
             aria-label={loading && !canSubmit ? "Calculating" : "Recalculate current setup"}
+            title="Recalculate (Ctrl / ⌘ + Enter)"
           >
             {loading ? (
               <IconLoader2 className="icon-spin" aria-hidden="true" size={18} />
@@ -708,14 +824,15 @@ export function App() {
       </header>
 
       <nav className="mobile-section-nav" aria-label="Workspace sections">
-        <a href="#setup-inspector-panel">Parameters</a>
-        <a href="#results-heading">Results</a>
+        <button type="button" aria-pressed={mobileView === "workbench"} onClick={() => setMobileView("workbench")}>Optics &amp; results</button>
+        <button type="button" aria-pressed={mobileView === "parameters"} onClick={() => setMobileView("parameters")}>Parameters {dirty ? <span className="unsaved-dot" aria-label="Changes not calculated" /> : null}</button>
       </nav>
 
       {fileMessage ? (
         <div className={`app-status ${fileMessage.kind}`} role={fileMessage.kind === "error" ? "alert" : "status"}>
           {fileMessage.kind === "error" ? <IconAlertTriangle aria-hidden="true" size={17} /> : <IconCheck aria-hidden="true" size={17} />}
           <span>{fileMessage.text}</span>
+          {fileMessage.canUndo && replacementUndo ? <button className="text-button" type="button" onClick={handleUndoReplacement}><IconArrowBackUp aria-hidden="true" size={15} />Undo</button> : null}
           <button type="button" className="app-status__dismiss" onClick={() => setFileMessage(null)} aria-label="Dismiss configuration message">
             <IconX aria-hidden="true" size={16} />
           </button>
@@ -723,12 +840,11 @@ export function App() {
       ) : null}
 
       <main id="workspace" className="app-main">
-        <div className="workspace" ref={workspaceRef}>
+        <div className="workspace" ref={workspaceRef} data-mobile-view={mobileView}>
           <div className="workspace__main">
           <section id="optics-workbench-panel" className="canvas-panel" aria-labelledby="optics-workspace-heading">
             <div className="canvas-panel__topbar">
               <div>
-                <p className="eyebrow">Interactive ray geometry</p>
                 <h2 id="optics-workspace-heading">Optics workbench</h2>
               </div>
               <div
@@ -746,6 +862,7 @@ export function App() {
                   <IconCircleDashed aria-hidden="true" size={15} />
                 )}
                 {calculationStatus.label}
+                {loading ? <button className="text-button" type="button" onClick={() => sessionRef.current.cancel()} aria-label="Cancel calculation">Cancel</button> : null}
               </div>
             </div>
 
@@ -757,6 +874,7 @@ export function App() {
                     <strong>Calculation could not be updated</strong>
                     <p>{serverError || generalIssues.join(" ")}</p>
                     {result ? <small>The diagram and metrics show the last valid result.</small> : null}
+                    <button className="text-button" type="button" onClick={() => void calculate(configRef.current)} disabled={!canSubmit}>Retry calculation</button>
                   </div>
                 </div>
               ) : null}
@@ -770,7 +888,7 @@ export function App() {
                       {Object.entries(fieldErrors).map(([field, message]) => (
                         <li key={field}>
                           <button type="button" onClick={() => focusErrorField(field)}>
-                            {field.replaceAll("_", " ")}: {message}
+                            {FIELD_LABELS[field] ?? field.replaceAll("_", " ")}: {message}
                           </button>
                         </li>
                       ))}
@@ -800,24 +918,24 @@ export function App() {
             </div>
 
             <div className={`canvas-panel__viewport${hasStaleResult ? " is-stale" : ""}`}>
-              <OpticsCanvas
+              {result ? <OpticsCanvas
                 config={displayedConfig}
                 result={result}
                 onSourceDistanceChange={handleSourceDistanceChange}
                 onDetectorDistanceChange={handleDetectorDistanceChange}
-              />
-              {!result && loading ? (
-                <div className="canvas-panel__loading" role="status">
-                  <IconLoader2 className="icon-spin" aria-hidden="true" size={24} />
-                  Preparing the optics model…
+              /> : (
+                <div className="canvas-empty" role="status">
+                  {loading ? <IconLoader2 className="icon-spin" aria-hidden="true" size={28} /> : <IconAtom2 aria-hidden="true" size={32} />}
+                  <strong>{loading ? "Calculating your optical setup…" : "Calculate to view the optical path"}</strong>
+                  <p>{loading ? "Preparing geometry and crystal response." : "Review the parameters, then recalculate. Your inputs are preserved."}</p>
                 </div>
-              ) : null}
+              )}
             </div>
 
             <div className="canvas-panel__footer">
               <p>
                 <IconRulerMeasure aria-hidden="true" size={16} />
-                Drag the source or detector to adjust <em>p</em> or <em>q</em>; release to recalculate.
+                <span>Drag the source or detector to adjust <em>p</em> or <em>q</em>; release to recalculate.</span>
               </p>
               {result ? (
                 <dl className="geometry-readout" aria-label="Calculated geometry summary">
@@ -853,7 +971,7 @@ export function App() {
           <div className="results-strip__heading">
             <div>
               <p className="eyebrow">Calculated outputs</p>
-              <h2 id="results-heading">Detector-ready summary</h2>
+              <h2 id="results-heading">Calculated results</h2>
             </div>
             {resultSnapshotLabel ? <span>{hasStaleResult ? "Showing previous result" : `Calculated: ${resultSnapshotLabel}`}</span> : null}
           </div>
@@ -1115,11 +1233,10 @@ export function App() {
           <aside id="setup-inspector-panel" className="inspector" aria-labelledby="inspector-heading">
             <div className="inspector__header">
               <div>
-                <p className="eyebrow">Configuration</p>
-                <h2 id="inspector-heading">Setup inspector</h2>
+                <h2 id="inspector-heading">Parameters</h2>
               </div>
               <span className={`inspector__state${dirty ? " is-dirty" : ""}`} role="status">
-                {fieldErrorCount ? `${fieldErrorCount} error${fieldErrorCount === 1 ? "" : "s"}` : loading ? "Calculating" : dirty ? "Changes not calculated" : result ? "Synced" : "Waiting"}
+                {fieldErrorCount ? `${fieldErrorCount} error${fieldErrorCount === 1 ? "" : "s"}` : serverError ? "Retry needed" : loading ? "Calculating" : dirty ? "Edited" : result ? "Up to date" : "Ready to calculate"}
               </span>
             </div>
 
@@ -1147,7 +1264,8 @@ export function App() {
                   error={fieldErrors.material}
                 />
 
-                <fieldset className={`hkl-control${fieldErrors.hkl ? " hkl-control--error" : ""}`}>
+                <fieldset className={`hkl-control${fieldErrors.hkl ? " hkl-control--error" : ""}`}
+                  aria-invalid={Boolean(fieldErrors.hkl)} aria-describedby={fieldErrors.hkl ? "hkl-group-error" : undefined}>
                   <legend>
                     Reflection (h k l)
                     <span className="field-control__hint-icon" title="Miller indices must be integers and cannot all be zero.">
@@ -1190,7 +1308,7 @@ export function App() {
                     />
                   </div>
                   {fieldErrors.hkl ? (
-                    <p className="hkl-control__error" role="alert">
+                    <p className="hkl-control__error" id="hkl-group-error" role="alert">
                       {fieldErrors.hkl}
                     </p>
                   ) : null}
@@ -1242,8 +1360,8 @@ export function App() {
                       </select>
                     </label>
                   </div>
-                  <p id="edge-picker-hint">Choose an absorption edge to fill the energy, or edit the eV value directly.</p>
-                  {edgeCatalogError ? <p id="edge-picker-error" className="edge-picker__error" role="status">{edgeCatalogError} Enter energy manually.</p> : null}
+                  <p id="edge-picker-hint">Choose an edge to fill the energy above.</p>
+                  {edgeCatalogError ? <p id="edge-picker-error" className="edge-picker__error" role="status">Enter energy manually or <button type="button" className="text-button" onClick={() => setCatalogAttempt((attempt) => attempt + 1)}>retry edge list</button>.</p> : null}
                 </div>
                 <FieldControl
                   id="crystal-thickness"
@@ -1394,6 +1512,7 @@ export function App() {
               </InspectorSection>
 
               <div className="inspector__submit">
+                {dirty && result ? <button className="text-button" type="button" onClick={handleRevert}><IconArrowBackUp aria-hidden="true" size={15} />Revert to calculated inputs</button> : null}
                 <button className="button button--primary button--full" type="submit" disabled={!canSubmit}>
                   {loading && !canSubmit ? (
                     <IconLoader2 className="icon-spin" aria-hidden="true" size={18} />
@@ -1402,7 +1521,8 @@ export function App() {
                   )}
                   {loading && !canSubmit ? "Calculating…" : "Recalculate setup"}
                 </button>
-                <p>{hasStaleResult ? `Previous result: ${resultSnapshotLabel}.` : "Inputs are checked by the calculation API."}</p>
+                <p>{draftSaved ? "Inputs saved in this browser" : "Browser storage unavailable — use Save to keep inputs"}</p>
+                <button className="text-button mobile-results-button" type="button" onClick={() => setMobileView("workbench")}>View optics &amp; results</button>
               </div>
             </form>
           </aside>

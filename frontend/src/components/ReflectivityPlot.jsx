@@ -1,5 +1,7 @@
 import { lazy, Suspense, useMemo } from "react";
 import { IconActivity, IconLoader2 } from "@tabler/icons-react";
+import { finiteSeries } from "../lib/reflectivityData.js";
+import { hasMetric } from "../lib/formatMetrics.js";
 
 const PlotlyFigure = lazy(() => import("./PlotlyFigure.jsx"));
 
@@ -10,12 +12,6 @@ const COLORS = Object.freeze({
   grid: "#ece8e2",
   muted: "#667085",
 });
-
-function finiteSeries(values, length) {
-  if (!Array.isArray(values) || values.length !== length) return null;
-  const series = values.map(Number);
-  return series.every(Number.isFinite) ? series : null;
-}
 
 function polarizationLabel(polarization) {
   if (polarization === "sigma") return "σ selected";
@@ -28,15 +24,11 @@ function modelLabel(model) {
   return String(model).replaceAll("_", " ");
 }
 
-function hasMetric(value) {
-  return value !== null && value !== undefined && Number.isFinite(Number(value));
-}
-
 export function ReflectivityPlot({ result, config }) {
   const figure = useMemo(() => {
     const curve = result?.reflectivity_curve;
-    const x = Array.isArray(curve?.x) ? curve.x.map(Number) : [];
-    if (!x.length || !x.every(Number.isFinite)) return null;
+    const x = finiteSeries(curve?.x, curve?.x?.length);
+    if (!x) return null;
 
     const selected = finiteSeries(curve.selected, x.length);
     const sigma = finiteSeries(curve.sigma, x.length);
@@ -89,7 +81,7 @@ export function ReflectivityPlot({ result, config }) {
         margin: { l: 56, r: 20, t: 16, b: 52 },
         paper_bgcolor: "#ffffff",
         plot_bgcolor: "#fffefd",
-        font: { family: "Inter, sans-serif", color: COLORS.muted, size: 11 },
+        font: { family: "Figtree, sans-serif", color: COLORS.muted, size: 12 },
         hovermode: "x unified",
         showlegend: traces.length > 1,
         legend: {
@@ -132,7 +124,7 @@ export function ReflectivityPlot({ result, config }) {
   const plotConfig = useMemo(
     () => ({
       responsive: true,
-      scrollZoom: true,
+      scrollZoom: false,
       doubleClick: "reset",
       displaylogo: false,
       displayModeBar: true,

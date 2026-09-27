@@ -135,8 +135,38 @@ test("a strict JSON server failure exposes its specific issue", async () => {
 });
 
 test("canonical comparison rejects unparseable drafts without treating blank as zero", () => {
+  assert.equal(canonicalConfig({ ...DEFAULT_CONFIG, h: true }), null);
   assert.equal(canonicalConfig({ ...DEFAULT_CONFIG, energy_kev: "" }), null);
   assert.equal(canonicalConfig({ ...DEFAULT_CONFIG, energy_kev: "1e" }), null);
   assert.equal(sameScientificConfig(DEFAULT_CONFIG, { ...DEFAULT_CONFIG, energy_kev: "8" }), true);
   assert.equal(sameScientificConfig(DEFAULT_CONFIG, { ...DEFAULT_CONFIG, bending_radius_m: "-2" }), true);
+});
+
+test("cancelling preserves the accepted result and later responses cannot overwrite it", async () => {
+  const { session, calls } = harness();
+  const initial = session.submit();
+  calls[0].response.resolve(success());
+  await initial;
+  session.edit({ ...DEFAULT_CONFIG, energy_kev: 9 });
+  const pending = session.submit();
+  session.cancel();
+  assert.equal(calls[1].signal.aborted, true);
+  calls[1].response.resolve(success({ bragg_angle_deg: 20 }));
+  assert.equal((await pending).kind, "superseded");
+  assert.equal(session.read().accepted.result.bragg_angle_deg, 14.31);
+  assert.equal(session.read().draft.energy_kev, 9);
+  assert.equal(session.read().pending, null);
+});
+
+test("an unreadable successful result cannot replace a valid scientific result", async () => {
+  const { session, calls } = harness();
+  const initial = session.submit();
+  calls[0].response.resolve(success());
+  await initial;
+  for (const invalid of [{}, [], { bragg_angle_deg: null }]) {
+    const pending = session.submit();
+    calls.at(-1).response.resolve(success(invalid));
+    assert.equal((await pending).kind, "failed");
+    assert.equal(session.read().accepted.result.bragg_angle_deg, 14.31);
+  }
 });

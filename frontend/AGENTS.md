@@ -23,3 +23,18 @@ When implementing from a selected generated mock, treat that image as the source
 - Provide a checkbox in the optics canvas to show or hide distance labels and construction guides. When shown, dashed ray extensions locate a virtual focus and dashed perpendicular projections show the detector's longitudinal and transverse components.
 - Make the workbench/inspector divider and the Crystal, Geometry, and Detector section boundaries draggable for resizing on desktop; keep the stacked narrow-screen layout in natural content flow.
 - Show and edit photon energy in eV in the interface, including element-edge selection and setup comparison; retain the `energy_kev` API and saved-file field with explicit UI conversion.
+
+## September 27 usability refinement
+
+- The user asked for a thorough UI and robustness improvement, using the local
+  `/Users/juanjuan.huang/Documents/GitHub/Dr.XAS` app as the aesthetic reference.
+  Its current warm neutral surfaces, violet actions, Figtree typography, and
+  restrained borders guide the interface. Keep the geometry-first layout above.
+- Use compact label/control rows where space allows. Keep desktop Save/Load
+  actions visible, and let narrow screens switch between optics/results and
+  parameters without scrolling through the entire scientific report.
+- Preserve unfinished inputs on refresh. Stored inputs must be recalculated;
+  an old result must never acquire a current label from browser persistence.
+- Keep timeout, cancellation, retry, error-field navigation, and reversible
+  setup replacement available. Do not display an illustrative calculated angle
+  before the first accepted result arrives.
