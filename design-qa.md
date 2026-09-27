@@ -54,9 +54,9 @@ compact controls, and clear hierarchy. Earlier audits below are historical.
 
 ### Evidence and remaining verification limits
 
-Production screenshots are saved locally under
-`/Users/juanjuan.huang/.codex/visualizations/2026/09/27/01a0e441-faa5-73c1-a2e0-1950ffd3f24a/`:
-`dxascalc-desktop.png` and `dxascalc-desktop-full.png`.
+Production screenshots (`dxascalc-desktop.png` and
+`dxascalc-desktop-full.png`) were captured locally for this review and are not
+part of the repository.
 
 The automation browser did not return download or file-picker events, so the
 Save → download → Load browser round trip remains unverified. Configuration

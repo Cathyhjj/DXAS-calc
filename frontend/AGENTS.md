@@ -26,8 +26,8 @@ When implementing from a selected generated mock, treat that image as the source
 
 ## September 27 usability refinement
 
-- The user asked for a thorough UI and robustness improvement, using the local
-  `/Users/juanjuan.huang/Documents/GitHub/Dr.XAS` app as the aesthetic reference.
+- The user asked for a thorough UI and robustness improvement, using the
+  neighboring Dr.XAS app checkout as the aesthetic reference.
   Its current warm neutral surfaces, violet actions, Figtree typography, and
   restrained borders guide the interface. Keep the geometry-first layout above.
 - Use compact label/control rows where space allows. Keep desktop Save/Load
