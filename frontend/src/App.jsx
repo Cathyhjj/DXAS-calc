@@ -947,14 +947,6 @@ export function App() {
               {result ? (
                 <dl className="geometry-readout" aria-label="Calculated geometry summary">
                   <div>
-                    <dt>Bragg angle</dt>
-                    <dd>{formatValue(result.bragg_angle_deg)}°</dd>
-                  </div>
-                  <div>
-                    <dt>Detector angle</dt>
-                    <dd>{detectorAngleDeg === null ? "—" : `${formatValue(detectorAngleDeg)}°`}</dd>
-                  </div>
-                  <div>
                     <dt>Focus</dt>
                     <dd>
                       {hasMetric(result.geometric_focus_m) ? `${formatValue(result.geometric_focus_m)} m` : "Unavailable"} · {result.focus_kind}
@@ -1031,6 +1023,34 @@ export function App() {
               delta={totalDelta}
               accent="muted"
               unavailable={Boolean(result && !hasTotalResolution)}
+            />
+          </div>
+          <div className="results-strip__angles">
+            <ResultMetric
+              label="Bragg angle"
+              value={formatValue(braggAngleDeg)}
+              unit="°"
+              note="θB · angle to crystal planes"
+              delta={formatMetricDelta(
+                braggAngleDeg,
+                baseline?.result?.bragg_angle_deg,
+                "°",
+              )}
+              accent="slate"
+            />
+            <ResultMetric
+              label="Detector angle"
+              value={formatValue(detectorAngleDeg)}
+              unit="°"
+              note="2θB · beam deflection"
+              delta={formatMetricDelta(
+                detectorAngleDeg,
+                hasMetric(baseline?.result?.bragg_angle_deg)
+                  ? 2 * Number(baseline.result.bragg_angle_deg)
+                  : null,
+                "°",
+              )}
+              accent="slate"
             />
           </div>
         </section>

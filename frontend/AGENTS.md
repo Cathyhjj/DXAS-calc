@@ -38,6 +38,8 @@ When implementing from a selected generated mock, treat that image as the source
 - Keep timeout, cancellation, retry, error-field navigation, and reversible
   setup replacement available. Do not display an illustrative calculated angle
   before the first accepted result arrives.
+- Keep Bragg angle (θB) and detector angle (2θB) visible in the Calculated
+  results panel beneath the four primary output metrics.
 - Let the user choose to define detector placement by the ray distance `q`,
   longitudinal projection `|q∥|`, or transverse projection `|q⊥|` shown on the
   optics guides. Convert a selected projection using the validated result's
