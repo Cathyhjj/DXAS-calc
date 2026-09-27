@@ -99,6 +99,13 @@ results, so it can be shared or saved alongside an experiment.
   the calculate action kept available at the bottom of the parameter view.
 - Select the info icon beside an input to read its explanation. Use the plot
   toolbar to zoom; the mouse wheel scrolls the page.
+- In **Detector**, choose whether to enter the crystal-to-detector ray distance
+  `q`, its along-beam projection `|q∥|`, or its across-beam projection `|q⊥|`.
+  Entering a projection converts it to `q` at the current calculated `2θ`;
+  choose **Recalculate setup** to update the result. If material, reflection,
+  or energy changes, recalculate first so the conversion uses the new angle.
+  Saved configurations retain the physical ray distance `q`; displayed
+  projections update when the angle changes.
 
 ## Test and build
 

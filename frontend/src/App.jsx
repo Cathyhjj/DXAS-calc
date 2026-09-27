@@ -23,6 +23,7 @@ import { AboutDialog } from "./components/AboutDialog.jsx";
 import { ComparisonPanel } from "./components/ComparisonPanel.jsx";
 import { InspectorSection } from "./components/InspectorSection.jsx";
 import { FieldControl } from "./components/FieldControl.jsx";
+import { DetectorDistanceControl } from "./components/DetectorDistanceControl.jsx";
 import { OpticsCanvas } from "./components/OpticsCanvas.jsx";
 import { ReflectivityPlot } from "./components/ReflectivityPlot.jsx";
 import { ResultMetric } from "./components/ResultMetric.jsx";
@@ -36,6 +37,7 @@ import {
 import { evInputToKev, kevToEvInput } from "./lib/energyUnits.js";
 import { requestCalculation, requestJson } from "./lib/apiClient.js";
 import { browserStorage, readDraft, writeDraft } from "./lib/draftStorage.js";
+import { DETECTOR_DISTANCE_MODES, sameBraggInputs } from "./lib/detectorProjection.js";
 import { createCalculationSession, sameScientificConfig } from "./lib/calculationSession.js";
 import { formatMetricDelta, formatValue, hasMetric, unavailableReason } from "./lib/formatMetrics.js";
 import { formatComparisonDelta } from "./lib/comparisonData.js";
@@ -122,6 +124,9 @@ function resolutionMethodLabel(method) {
 export function App() {
   const [restoredDraft] = useState(() => readDraft(browserStorage()));
   const [draftSaved, setDraftSaved] = useState(true);
+  const [detectorDistanceMode, setDetectorDistanceMode] = useState(
+    () => restoredDraft?.detectorDistanceMode ?? DETECTOR_DISTANCE_MODES.RAY,
+  );
   const [mobileView, setMobileView] = useState("workbench");
   const [catalogAttempt, setCatalogAttempt] = useState(0);
   const [replacementUndo, setReplacementUndo] = useState(null);
@@ -220,8 +225,9 @@ export function App() {
   useEffect(() => {
     setDraftSaved(writeDraft(browserStorage(), {
       config, energyInputEv, thicknessEdited: thicknessEditedRef.current,
+      detectorDistanceMode,
     }));
-  }, [config, energyInputEv]);
+  }, [config, energyInputEv, detectorDistanceMode]);
 
   useEffect(() => {
     if (draftSaved || !calculation.revision) return undefined;
@@ -665,6 +671,7 @@ export function App() {
   const hasTotalResolution = hasMetric(result?.total_resolution_ev_fwhm);
   const braggAngleDeg = hasMetric(result?.bragg_angle_deg) ? Number(result.bragg_angle_deg) : null;
   const detectorAngleDeg = braggAngleDeg === null ? null : 2 * braggAngleDeg;
+  const projectionAngleCurrent = braggAngleDeg !== null && sameBraggInputs(config, calculatedConfig);
   const comparedTotalDelta = baseline
     ? formatComparisonDelta(result, baseline.result, "total_resolution_ev_fwhm", "eV FWHM")
     : null;
@@ -1478,15 +1485,15 @@ export function App() {
                 expanded={sections.detector}
                 onToggle={() => toggleSection("detector")}
               >
-                <FieldControl
-                  id="detector-distance"
-                  label="Crystal–detector distance q"
-                  unit="m"
-                  value={config.detector_distance_m}
-                  onChange={(value) => handleFieldChange("detector_distance_m", value)}
-                  step="0.01"
+                <DetectorDistanceControl
+                  mode={detectorDistanceMode}
+                  onModeChange={setDetectorDistanceMode}
+                  qMeters={config.detector_distance_m}
+                  braggAngleDeg={braggAngleDeg}
+                  angleCurrent={projectionAngleCurrent}
+                  onRayChange={(value) => handleFieldChange("detector_distance_m", value)}
+                  onProjectedCommit={(qMeters) => handleFieldChange("detector_distance_m", qMeters)}
                   error={fieldErrors.detector_distance_m}
-                  hint="You can also drag the detector plane in the Plotly diagram."
                 />
                 <FieldControl
                   id="pixel-size"

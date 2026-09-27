@@ -867,6 +867,24 @@ input::-webkit-outer-spin-button {
 .model-callout--laue {
   background: var(--amber-soft);
 }
+.detector-distance-controls {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 9px;
+  min-width: 0;
+}
+.detector-distance-controls > .field-control:first-child {
+  grid-template-columns: 80px minmax(0, 1fr);
+}
+.detector-distance-controls__note {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--surface-violet);
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
 .detector-readout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

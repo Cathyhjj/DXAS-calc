@@ -1,5 +1,6 @@
 import { DEFAULT_CONFIG, NUMERIC_FIELDS } from "./configurationFile.js";
 import { evInputToKev, kevToEvInput } from "./energyUnits.js";
+import { DETECTOR_DISTANCE_MODES, isDetectorDistanceMode } from "./detectorProjection.js";
 
 const STORAGE_KEY = "dxascalc-draft-v1";
 const ENUMS = {
@@ -44,6 +45,9 @@ export function readDraft(storage) {
       config,
       energyInputEv,
       thicknessEdited: payload.thicknessEdited === true,
+      detectorDistanceMode: isDetectorDistanceMode(payload.detectorDistanceMode)
+        ? payload.detectorDistanceMode
+        : DETECTOR_DISTANCE_MODES.RAY,
     };
   } catch {
     return null;
@@ -52,13 +56,21 @@ export function readDraft(storage) {
 
 export function writeDraft(
   storage,
-  { config, energyInputEv, thicknessEdited },
+  { config, energyInputEv, thicknessEdited, detectorDistanceMode = DETECTOR_DISTANCE_MODES.RAY },
 ) {
   try {
     if (!storage) return false;
     storage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ version: 1, config, energyInputEv, thicknessEdited }),
+      JSON.stringify({
+        version: 1,
+        config,
+        energyInputEv,
+        thicknessEdited,
+        detectorDistanceMode: isDetectorDistanceMode(detectorDistanceMode)
+          ? detectorDistanceMode
+          : DETECTOR_DISTANCE_MODES.RAY,
+      }),
     );
     return true;
   } catch {

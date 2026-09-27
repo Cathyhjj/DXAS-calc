@@ -72,6 +72,9 @@ export function FieldControl({
   label,
   value,
   onChange,
+  onBlur,
+  onFocus,
+  onKeyDown,
   unit,
   type = "number",
   step,
@@ -151,6 +154,9 @@ export function FieldControl({
             inputMode={inputMode}
             value={value ?? ""}
             onChange={(event) => onChange(event.target.value)}
+            onBlur={onBlur}
+            onFocus={onFocus}
+            onKeyDown={onKeyDown}
             step={step}
             min={min}
             max={max}

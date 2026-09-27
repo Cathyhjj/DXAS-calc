@@ -12,7 +12,7 @@ test("a refresh retains unfinished numbers and manually selected thickness", () 
   const store = storage();
   const draft = { config: { ...DEFAULT_CONFIG, energy_kev: "", h: "1.5" }, energyInputEv: "", thicknessEdited: true };
   assert.equal(writeDraft(store, draft), true);
-  assert.deepEqual(readDraft(store), draft);
+  assert.deepEqual(readDraft(store), { ...draft, detectorDistanceMode: "ray" });
 });
 
 test("blocked storage and corrupt or incompatible drafts never break startup", () => {
@@ -37,4 +37,14 @@ test("a stale saved eV display cannot disagree with the restored keV inputs", ()
   const store = storage();
   writeDraft(store, { config: DEFAULT_CONFIG, energyInputEv: "9000", thicknessEdited: false });
   assert.equal(readDraft(store).energyInputEv, "8000");
+});
+
+test("the chosen detector distance input mode survives refresh without changing saved q", () => {
+  const store = storage();
+  writeDraft(store, {
+    config: DEFAULT_CONFIG, energyInputEv: "8000", thicknessEdited: false,
+    detectorDistanceMode: "perpendicular",
+  });
+  assert.equal(readDraft(store).detectorDistanceMode, "perpendicular");
+  assert.equal(readDraft(store).config.detector_distance_m, DEFAULT_CONFIG.detector_distance_m);
 });

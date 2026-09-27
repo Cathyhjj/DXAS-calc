@@ -38,3 +38,8 @@ When implementing from a selected generated mock, treat that image as the source
 - Keep timeout, cancellation, retry, error-field navigation, and reversible
   setup replacement available. Do not display an illustrative calculated angle
   before the first accepted result arrives.
+- Let the user choose to define detector placement by the ray distance `q`,
+  longitudinal projection `|q∥|`, or transverse projection `|q⊥|` shown on the
+  optics guides. Convert a selected projection using the validated result's
+  scattering angle `2θ` and keep physical `detector_distance_m` as the API and
+  configuration-file value. Never convert with a stale Bragg angle.
